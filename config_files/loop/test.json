@@ -1,0 +1,27 @@
+{
+    "exp_name": "Loop50_CDiscSarsa_test",
+    "env_name": "Loop",
+    "csuite_env": false,
+    "agent_name": "DiffDiscSarsa",
+    "approximation_type": "tabular",
+    "exp_type": "control",
+    "num_runs": 1,
+    "num_max_steps": 100000,
+    "eval_every_n_steps": 1000,
+    "num_states": 50,
+    "num_features": 50,
+    "num_actions": 1,
+    "reward_scale_factor": 20,
+    "num_weights": 50,
+    "save_weights": 1,
+    "epsilon_start": 0.1,
+    "epsilon_end": 0.1,
+    "robust_to_initialization": false,
+    "sweep_parameters":
+    {
+        "alpha": [0.1],
+        "gamma": [0.9],
+        "eta": [0.0001, 0.001],
+        "reward_offset": [0]
+    }
+}

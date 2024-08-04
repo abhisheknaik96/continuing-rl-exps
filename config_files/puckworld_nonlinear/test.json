@@ -1,0 +1,30 @@
+{
+    "exp_name": "puckworld_nonlinear_test",
+    "nonlinear": true,
+    "env_name": "puckworld",
+    "csuite_env": true,
+    "agent_name": "CDQN",
+    "exp_type": "control",
+    "num_runs": 3,
+    "num_max_steps": 300000,
+    "eval_every_n_steps": 5000,
+    "param_update_freq": 32,
+    "layer_sizes": [6, 32, 32, 32, 4],
+    "num_weights": 0,
+    "net_sync_freq": 128,
+    "buffer_size": 10000,
+    "batch_size": 64,
+    "save_weights": 0,
+    "robust_to_initialization": true,
+    "epsilon_start": 0.1,
+    "epsilon_end": 0.1,
+    "epsilon_decay_param": 50000,
+    "device": "cpu",
+    "sweep_parameters":
+    {
+        "step_size": [0.01],
+        "eta": [1.0],
+        "gamma": [1.0],
+        "reward_offset": [0]
+    }
+}

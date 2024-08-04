@@ -1,0 +1,27 @@
+{
+    "exp_name": "pendulum_eps0.1_tile777_100k_DiscQ",
+    "env_name": "pendulum",
+    "csuite_env": true,
+    "agent_name": "DiscQ",
+    "exp_type": "control",
+    "num_runs": 3,
+    "num_max_steps": 100000,
+    "eval_every_n_steps": 5000,
+    "num_weights": 12291,
+    "save_weights": 0,
+    "num_features": 4097,
+    "num_actions": 3,
+    "epsilon_start": 0.1,
+    "epsilon_end": 0.1,
+    "epsilon_decay_param": 60000,
+    "tilecoder": true,
+    "bias": true,
+    "num_tilings": 8,
+    "tiling_dims": [7, 7, 7],
+    "limits_per_dim": [[-1, 1], [-1, 1], [-10, 10]],
+    "sweep_parameters":
+    {
+        "alpha": [0.1],
+        "gamma": [0.9]
+    }
+}

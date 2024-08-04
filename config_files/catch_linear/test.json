@@ -1,0 +1,30 @@
+{
+    "exp_name": "catch_test",
+    "env_name": "catch",
+    "csuite_env": true,
+    "agent_name": "DiffDiscQ",
+    "approximation_type": "linear",
+    "exp_type": "control",
+    "num_runs": 3,
+    "num_max_steps": 20000,
+    "eval_every_n_steps": 5000,
+    "robust_to_initialization": true,
+    "num_actions": 3,
+    "num_features": 3,
+    "epsilon_start": 0.1,
+    "epsilon_end": 0.1,
+    "save_weights": 0,
+    "store_max_action_values": true,
+    "tilecoder": true,
+    "num_tilings": 16,
+    "tiling_dims": [3, 3, 3],
+    "limits_per_dim": [[0, 1], [0, 1], [0, 1]],
+    "num_weights": 3075,
+    "sweep_parameters":
+    {
+        "alpha": [0.125],
+        "eta": [0.0625],
+        "gamma": [0.99],
+        "reward_offset": [0]
+    }
+}

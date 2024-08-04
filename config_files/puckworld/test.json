@@ -1,0 +1,30 @@
+{
+    "exp_name": "puckworld_test",
+    "env_name": "puckworld",
+    "csuite_env": true,
+    "agent_name": "DiffDiscQ",
+    "approximation_type": "linear",
+    "exp_type": "control",
+    "num_runs": 2,
+    "num_max_steps": 300000,
+    "eval_every_n_steps": 5000,
+    "num_actions": 4,
+    "num_features": 6,
+    "epsilon_start": 0.1,
+    "epsilon_end": 0.1,
+    "save_weights": 0,
+    "robust_to_initialization": true,
+    "store_max_action_values": true,
+    "tilecoder": true,
+    "num_tilings": 32,
+    "tiling_dims": [3, 3, 3, 3, 3, 3],
+    "limits_per_dim": [[0, 5], [0, 5], [-0.2, 0.2], [-0.2, 0.2], [0, 5], [0, 5]],
+    "num_weights": 524292,
+    "sweep_parameters":
+    {
+        "alpha": [0.3],
+        "eta": [0.0625],
+        "gamma": [0.99],
+        "reward_offset": [0]
+    }
+}

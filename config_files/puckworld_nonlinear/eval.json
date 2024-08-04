@@ -1,0 +1,30 @@
+{
+    "exp_name": "puckworld_eval_nonlinear",
+    "exp_type": "control",
+    "env_name": "puckworld",
+    "csuite_env": true,
+    "agent_name": "DiffQN",
+    "nonlinear": true,
+    "render": true,
+    "num_runs": 3,
+    "num_max_steps": 650,
+    "eval_every_n_steps": 5000,
+    "param_update_freq": 10000,
+    "layer_sizes": [6, 32, 32, 4],
+    "num_weights": 0,
+    "net_sync_freq": 128,
+    "buffer_size": 1,
+    "batch_size": 64,
+    "save_weights": 0,
+    "epsilon_start": 0.0,
+    "epsilon_end": 0.0,
+    "epsilon_decay_param": 20000,
+    "save_model_loc": "models/",
+    "load_model_from": "models/puckworld_eps0.1_sweep_DiffQN_12.pth",
+    "device": "cpu",
+    "sweep_parameters":
+    {
+        "step_size": [0.00],
+        "eta": [0.0]
+    }
+}

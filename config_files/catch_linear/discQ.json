@@ -1,0 +1,27 @@
+{
+    "exp_name": "catch_DiscQ",
+    "env_name": "catch",
+    "csuite_env": true,
+    "agent_name": "DiscQ",
+    "approximation_type": "linear",
+    "exp_type": "control",
+    "num_runs": 30,
+    "num_max_steps": 30000,
+    "eval_every_n_steps": 5000,
+    "num_actions": 3,
+    "num_features": 3,
+    "epsilon_start": 0.1,
+    "epsilon_end": 0.1,
+    "save_weights": 0,
+    "tilecoder": true,
+    "num_tilings": 16,
+    "tiling_dims": [3, 3, 3],
+    "limits_per_dim": [[0, 1], [0, 1], [0, 1]],
+    "num_weights": 3075,
+    "sweep_parameters":
+    {
+        "alpha": [0.0078125, 0.015625, 0.03125, 0.0625, 0.125, 0.25, 0.5, 1],
+        "gamma": [0.0, 0.5, 0.8, 0.9, 0.95, 0.99, 0.995, 0.999],
+        "value_init": [-4, -2, 0, 2, 4]
+    }
+}

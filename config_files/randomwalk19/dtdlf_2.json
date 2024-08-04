@@ -1,0 +1,29 @@
+{
+    "exp_name": "RW19_DTDlf_b0.45",
+    "env_name": "RW",
+    "csuite_env": false,
+    "exp_type": "prediction",
+    "approximation_type": "tabular",
+    "num_states": 19,
+    "num_actions": 2,
+    "r_right": 1,
+    "num_features": 19,
+    "num_weights": 19,
+    "save_weights": 0,
+    "num_runs": 100,
+    "num_max_steps": 10000,
+    "eval_every_n_steps": 1,
+    "pi": [0.5, 0.5],
+    "b": [0.55, 0.45],
+    "alpha_decay_rate": 0.99975,
+    "agent_name": "DiffDiscTDl",
+    "dtdlf": true,
+    "gamma": 1,
+    "avg_cost_update": false,
+    "sweep_parameters":
+    {
+        "alpha": [0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+        "eta": [0.0003, 0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1],
+        "lambda": [0.0, 0.2, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
+    }
+}

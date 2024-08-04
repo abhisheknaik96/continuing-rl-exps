@@ -1,0 +1,24 @@
+{
+    "exp_name": "AC_random",
+    "env_name": "AC",
+    "csuite_env": true,
+    "agent_name": "DiffQ",
+    "exp_type": "control",
+    "num_runs": 1,
+    "num_max_steps": 2,
+    "eval_every_n_steps": 5000,
+    "num_weights": 88,
+    "weights_file": "results/accesscontrol/AC_DiffQ_31.npy",
+    "render": true,
+    "save_weights": 0,
+    "num_features": 44,
+    "num_actions": 2,
+    "epsilon_start": 0.0,
+    "epsilon_end": 0.0,
+    "epsilon_decay_param": 20000,
+    "sweep_parameters":
+    {
+        "alpha": [0.0],
+        "eta": [0.0]
+    }
+}

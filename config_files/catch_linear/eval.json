@@ -1,0 +1,29 @@
+{
+    "exp_name": "catch_eval",
+    "env_name": "catch",
+    "csuite_env": true,
+    "agent_name": "DiffDiscQ",
+    "approximation_type": "linear",
+    "exp_type": "control",
+    "render": false,
+    "num_runs": 1,
+    "num_max_steps": 10000,
+    "eval_every_n_steps": 5000,
+    "num_actions": 3,
+    "num_features": 3,
+    "epsilon_start": 0.0,
+    "epsilon_end": 0.0,
+    "save_weights": 0,
+    "weights_file": "results/test_exp/catch_test_CDQ_5.npy",
+    "load_seed": 1,
+    "tilecoder": true,
+    "num_tilings": 16,
+    "tiling_dims": [3, 3, 3],
+    "limits_per_dim": [[0, 1], [0, 1], [0, 1]],
+    "num_weights": 3075,
+    "sweep_parameters":
+    {
+        "alpha": [0.0],
+        "eta": [0.0]
+    }
+}

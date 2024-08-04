@@ -1,0 +1,25 @@
+{
+    "exp_name": "TC_CDiscQ_test",
+    "env_name": "TwoChoice",
+    "csuite_env": false,
+    "agent_name": "DiffDiscQ",
+    "approximation_type": "tabular",
+    "exp_type": "control",
+    "num_runs": 20,
+    "num_max_steps": 20000,
+    "eval_every_n_steps": 100,
+    "num_features": 9,
+    "num_actions": 2,
+    "num_weights": 18,
+    "save_weights": 1,
+    "epsilon_start": 0.1,
+    "epsilon_end": 0.1,
+    "robust_to_initialization": false,
+    "sweep_parameters":
+    {
+        "alpha": [0.1],
+        "gamma": [0.9],
+        "eta": [0.01, 0.1, 1],
+        "reward_offset": [0]
+    }
+}

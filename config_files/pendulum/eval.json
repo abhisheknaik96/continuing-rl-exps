@@ -1,0 +1,31 @@
+{
+    "exp_name": "pendulum_eval",
+    "env_name": "pendulum",
+    "csuite_env": true,
+    "agent_name": "DiffDiscQ",
+    "exp_type": "control",
+    "approximation_type": "linear",
+    "render": true,
+    "num_runs": 1,
+    "num_max_steps": 400,
+    "eval_every_n_steps": 200,
+    "num_weights": 12291,
+    "save_weights": 0,
+    "weights_file": "results/test_exp/pendulum_csuite_test_0.npy",
+    "load_seed": 0,
+    "num_features": 4097,
+    "num_actions": 3,
+    "epsilon_start": 0.0,
+    "epsilon_end": 0.0,
+    "epsilon_decay_param": 20000,
+    "tilecoder": true,
+    "num_tilings": 8,
+    "tiling_dims": [7, 7, 7],
+    "limits_per_dim": [[-1, 1], [-1, 1], [-10, 10]],
+    "sweep_parameters":
+    {
+        "alpha": [0.00],
+        "eta": [0.0],
+        "gamma": [0.0]
+    }
+}

@@ -1,0 +1,30 @@
+{
+    "exp_name": "catch_random",
+    "env_name": "catch",
+    "csuite_env": true,
+    "agent_name": "DiffQN",
+    "nonlinear": true,
+    "exp_type": "control",
+    "render": true,
+    "num_runs": 1,
+    "num_max_steps": 100,
+    "eval_every_n_steps": 5000,
+    "param_update_freq": 32,
+    "layer_sizes": [50, 128, 3],
+    "num_actions": 3,
+    "num_weights": 0,
+    "net_sync_freq": 128,
+    "buffer_size": 10000,
+    "batch_size": 64,
+    "save_weights": 0,
+    "epsilon_start": 1.0,
+    "epsilon_end": 1.0,
+    "epsilon_decay_param": 20000,
+    "save_model_loc": "models/",
+    "device": "cpu",
+    "sweep_parameters":
+    {
+        "alpha": [0.0],
+        "eta": [0.0]
+    }
+}

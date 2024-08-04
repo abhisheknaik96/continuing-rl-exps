@@ -1,0 +1,32 @@
+{
+    "exp_name": "MAB10_CDiscQ_UCST_conv_skip_stddev1_1byN",
+    "env_name": "bandit",
+    "csuite_env": false,
+    "agent_name": "DiffDiscQ",
+    "approximation_type": "tabular",
+    "exp_type": "control",
+    "num_runs": 2000,
+    "num_max_steps": 1000,
+    "eval_every_n_steps": 1,
+    "num_states": 1,
+    "num_features": 1,
+    "num_actions": 10,
+    "num_weights": 10,
+    "save_weights": 1,
+    "sampled_reward_stddev": 1,
+    "epsilon_start": 0.1,
+    "epsilon_end": 0.1,
+    "beta_sequence": "1byN",
+    "alpha_sequence": "1byN",
+    "robust_to_initialization": false,
+    "conv_error": true,
+    "skip_exploratory_update": true,
+    "store_max_action_values": true, 
+    "sweep_parameters":
+    {
+        "alpha": [1.0],
+        "gamma": [0.0],
+        "eta": [1.0],
+        "reward_offset": [0]
+    }
+}

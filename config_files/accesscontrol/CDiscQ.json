@@ -1,0 +1,26 @@
+{
+    "exp_name": "AC_CDiscQ",
+    "env_name": "AC",
+    "csuite_env": true,
+    "agent_name": "DiffDiscQ",
+    "approximation_type": "tabular",
+    "exp_type": "control",
+    "num_runs": 50,
+    "num_max_steps": 50000,
+    "eval_every_n_steps": 5000,
+    "num_features": 44,
+    "num_actions": 2,
+    "num_weights": 88,
+    "save_weights": 0,
+    "epsilon_start": 0.1,
+    "epsilon_end": 0.1,
+    "robust_to_initialization": true,
+    "store_max_action_values": true,
+    "sweep_parameters":
+    {
+        "alpha": [0.0078125, 0.015625, 0.03125, 0.0625, 0.125, 0.25, 0.5, 1],
+        "eta": [0.0, 0.00390625, 0.015625, 0.0625, 0.25, 1],
+        "gamma": [0, 0.5, 0.8, 0.9, 0.99, 0.999, 1.0],
+        "reward_offset": [-8, -4, 0, 4, 8]
+    }
+}

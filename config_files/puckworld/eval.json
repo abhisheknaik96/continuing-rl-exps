@@ -1,0 +1,32 @@
+{
+    "exp_name": "puckworld_eval",
+    "env_name": "puckworld",
+    "csuite_env": true,
+    "agent_name": "DiffQ",
+    "approximation_type": "linear",
+    "exp_type": "control",
+    "num_runs": 1,
+    "num_max_steps": 1000,
+    "render": true,
+    "eval_every_n_steps": 5000,
+    "num_actions": 4,
+    "num_features": 6,
+    "epsilon_start": 0.0,
+    "epsilon_end": 0.0,
+    "save_weights": 0,
+    "weights_file": "results/diffdisc/puckworld/puckworld_DiffDiscQ_931.npy",
+    "load_seed": 5,
+    "tilecoder": true,
+    "bias": true,
+    "num_tilings": 32,
+    "tiling_dims": [3, 3, 3, 3, 3, 3],
+    "limits_per_dim": [[0, 5], [0, 5], [-0.2, 0.2], [-0.2, 0.2], [0, 5], [0, 5]],
+    "num_weights": 524292,
+    "sweep_parameters":
+    {
+        "alpha": [0.0],
+        "eta": [0.0],
+        "gamma": [0.0],
+        "reward_offset": [0]
+    }
+}
