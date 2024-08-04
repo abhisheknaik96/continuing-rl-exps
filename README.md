@@ -45,3 +45,11 @@ For example, for the control algorithms, there is one implementation of a discou
 - $\gamma \in [0,1), \eta=0$: Discounted Q-learning 
 - $\gamma \in [0,1), \eta > 0$: Discounted Q-learning with reward centering
 - $\gamma=1, \eta > 0$: Differential Q-learning
+
+---
+
+The code in this repository can run most—if not all—experiments in the following works:
+- Naik, 2024: _Reinforcement Learning for Continuing Problems Using Average Reward,_ Ph.D. Dissertation, University of Alberta. [[Link](https://era.library.ualberta.ca/items/42307739-a774-4d6b-b1a3-de9fbc949575)]
+- Naik, Wan, Tomar, Sutton, 2024: _Reward Centering,_ RLC. [[Link](https://arxiv.org/abs/2405.09999)]
+- Naik, Sutton, 2022: _Multi-Step Average-Reward Prediction via Differential TD($\lambda$),_ RLDM. [[Link](https://drive.google.com/file/d/1Ygx2XI0mOFw4pfWZOm67uWsJQTOZEPSj/view?usp=sharing)]
+- Wan<sup>*</sup>, Naik<sup>*</sup>, Sutton, 2021: _Learning and Planning in Average-Reward Markov Decision Processes,_ ICML. [[Link](https://arxiv.org/abs/2006.16318)]
