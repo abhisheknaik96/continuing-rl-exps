@@ -4,8 +4,7 @@ from agents.base_agents import LFAControlAgent
 
 class DifferentialDiscountedQlearningAgent(LFAControlAgent):
     """
-    Implements the new one-step Differential Discounted Q-learning algorithm
-    (DiffDiscQ).
+    Implements one-step discounted Q-learning with centering.
     """
     def __init__(self, **agent_args):
         super().__init__(**agent_args)
@@ -90,8 +89,7 @@ class DifferentialDiscountedQlearningAgent(LFAControlAgent):
 
 class DifferentialDiscountedSarsaAgent(DifferentialDiscountedQlearningAgent):
     """
-    Implements the new one-step Centered Discounted Sarsa algorithm
-    (CDiscSarsa).
+    Implements one-step discounted Sarsa with centering.
     """
     def __init__(self, **agent_args):
         super().__init__(**agent_args)

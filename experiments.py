@@ -32,8 +32,6 @@ agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'ATDl': 'AverageCostTDlambdaAgent',
              'DiffDiscTD': 'DifferentialDiscountedTDlearningAgent',
              'DiffDiscTDl': 'DifferentialDiscountedTDlambdaAgent',
-             'DiffQ': 'DifferentialQlearningAgent',
-             'DiscQ': 'DiscountedQlearningAgent',
              'DiffDiscQ': 'DifferentialDiscountedQlearningAgent',
              'DiffDiscSarsa': 'DifferentialDiscountedSarsaAgent',
              'DiffQN': 'DiffQNAgent',
@@ -184,7 +182,7 @@ def run_experiment_one_config(config):
         config['rng_seed'] = run
         agent = getattr(sys.modules[__name__], agent_map[agent_name])(**config)
         if csuite_env:
-            settings = {'reward_offset': reward_offset}
+            settings = {}
             if env_name == 'catch':
                 # non-linear FA with 50-d binary observations and linear FA with 3-d continuous observations
                 settings['observation_type'] = 'discrete' if nonlinear else 'continuous'
@@ -217,6 +215,7 @@ def run_experiment_one_config(config):
                 next_obs, reward = env.step(action)
             else:
                 reward, next_obs = env.step(action)
+            reward += reward_offset
             # print(f'action: {action}\nreward: {reward}\nobs: {next_obs}')
             # print(f'reward: {reward:.3f}, r-bar: {agent.avg_reward:.3f}')
             action = agent.step(reward, process_observation(env_name, next_obs))

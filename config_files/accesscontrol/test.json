@@ -1,11 +1,11 @@
 {
-    "exp_name": "AC_test",
+    "exp_name": "AC_eta0.015625_test",
     "env_name": "AC",
     "csuite_env": true,
     "agent_name": "DiffDiscQ",
     "approximation_type": "tabular",
     "exp_type": "control",
-    "num_runs": 5,
+    "num_runs": 50,
     "num_max_steps": 50000,
     "eval_every_n_steps": 5000,
     "num_features": 44,
@@ -18,9 +18,9 @@
     "store_max_action_values": true,
     "sweep_parameters":
     {
-        "alpha": [0.015625],
-        "eta": [0.25],
-        "gamma": [0.99],
-        "reward_offset": [0]
+        "alpha": [0.25],
+        "eta": [0.015625],
+        "gamma": [0.9],
+        "reward_offset": [-4, 0, 4]
     }
 }

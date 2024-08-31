@@ -30,8 +30,6 @@ class RandomWalkN(FeaturesEnv):
 
         self.P = np.zeros((self.num_states, self.num_actions, self.num_states))
         self.R = np.zeros((self.num_states, self.num_actions, self.num_states))
-        self.reward_scale_factor = env_args.get('reward_scale_factor', 1)
-        self.reward_offset = env_args.get('reward_offset', 0)
 
         for s in range(1, self.num_states - 1):
             self.P[s, 0, s - 1] = 1
@@ -42,9 +40,6 @@ class RandomWalkN(FeaturesEnv):
         self.P[self.num_states - 1, 1, mid] = 1
         self.P[self.num_states - 1, 0, self.num_states - 2] = 1
         self.R[self.num_states - 1, 1, mid] = self.r_right
-
-        self.R *= self.reward_scale_factor
-        self.R += self.reward_offset
 
         self.rng_seed = env_args.get('rng_seed', 22)
         self.rng = np.random.default_rng(self.rng_seed)
