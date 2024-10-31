@@ -1,0 +1,38 @@
+{
+    "exp_name": "puckworld1D_cont_CDiscDDPG",
+    "env_name": "puckworld_continuous_1d",
+    "env_type": "csuite",
+    "agent_name": "CD_DDPG",
+    "nonlinear": true,
+    "exp_type": "control",
+    "render": false,
+    "num_runs": 5,
+    "num_max_steps": 100000,
+    "eval_every_n_steps": 5000,
+    "param_update_freq": 32,
+    "net_sync_freq": 32,
+    "batch_size": 128,
+    "buffer_size": 10000,
+    "actor_arch": [3, 64, 64, 1],
+    "critic_arch": [4, 64, 64, 1],
+    "num_actions": 1,
+    "use_ou_noise": true,
+    "initial_exploration_only_steps": 10000,
+    "num_weights": 0,
+    "actor_optimizer": "Adam",
+    "critic_optimizer": "Adam",
+    "save_weights": 0,
+    "store_max_action_values": true,
+    "robust_to_initialization": true,
+    "tau": 0.95,
+    "save_model_loc": "models/",
+    "device": "cpu",
+    "reward_offset": 0,
+    "sweep_parameters":
+    {
+        "actor_step_size": [0.001],
+        "critic_step_size": [0.001],
+        "eta": [0.0],
+        "gamma": [0.99]
+    }
+}

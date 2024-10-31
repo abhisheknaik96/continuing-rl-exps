@@ -1,0 +1,31 @@
+{
+    "exp_name": "puckworld1D_DQN_test",
+    "nonlinear": true,
+    "env_name": "puckworld_continuous_1d",
+    "env_type": "csuite",
+    "agent_name": "CDQN",
+    "exp_type": "control",
+    "num_runs": 1,
+    "num_max_steps": 80000,
+    "eval_every_n_steps": 5000,
+    "param_update_freq": 32,
+    "layer_sizes": [3, 32, 32, 3],
+    "num_weights": 0,
+    "net_sync_freq": 128,
+    "buffer_size": 10000,
+    "batch_size": 64,
+    "optimizer": "Adam",
+    "save_weights": 0,
+    "robust_to_initialization": true,
+    "epsilon_start": 0.5,
+    "epsilon_end": 0.1,
+    "epsilon_decay_param": 50000,
+    "device": "cpu",
+    "reward_offset": 0,
+    "sweep_parameters":
+    {
+        "step_size": [0.003],
+        "eta": [0],
+        "gamma": [0.9]
+    }
+}

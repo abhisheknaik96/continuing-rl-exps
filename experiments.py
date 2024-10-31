@@ -7,7 +7,8 @@ import zipfile
 import glob
 from tqdm import tqdm
 import numpy as np
-from gym.envs.classic_control import rendering
+import gym
+from utils import rendering
 import csuite
 from utils import helpers
 from environments import *
@@ -27,6 +28,12 @@ env_map = {'RandomWalkN': 'RandomWalkN',
            'RW': 'RandomWalkN',
            'bandit': 'MultiArmedBandit',
            'RiverSwim': 'RiverSwim',
+           'AO': 'gym_AO',
+           'MCC': 'Continuous_MountainCarEnv',
+        #    'MCC': 'MountainCarContinuous-v0',
+            'pendulum_continuous': 'pendulum_continuous',
+            'puckworld_continuous': 'puckworld_continuous',
+            'puckworld_continuous_1d': 'puckworld_continuous_1d' 
            }
 agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'ATDl': 'AverageCostTDlambdaAgent',
@@ -37,11 +44,14 @@ agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'DiffQN': 'DiffQNAgent',
              'DQN': 'DQNAgent',
              'CDQN': 'CDQNAgent',
-             'CDSarsaN': 'CDSNAgent'}
+             'CDSarsaN': 'CDSNAgent',
+             'CD_DDPG': 'DeepCenteredDiscountedPolicyBasedAgent'}
 
 
 def process_observation(env_name, raw_obs):
-    if env_name == 'pendulum':
+    if env_name == 'MCC':
+        obs = np.array([((raw_obs[0] + 1.2)/1.8 - 0.5) * 2, ((raw_obs[1] + 0.07)/0.14 - 0.5) * 2])
+    elif env_name == 'pendulum':
         obs = raw_obs
         obs[2] /= 10
     elif env_name == 'catch':
@@ -91,20 +101,21 @@ def log_data(interval, current_timestep, current_run,
         log['avgrew'][current_run][index] = agent.avg_reward
 
 
-def save_final_weights(nonlinear, run_idx, log, env, agent, exp_name, exp_id):
-    if nonlinear:
-        agent.save_trained_model(f'{exp_name}_{exp_id}_{run_idx}')
-    else:
-        log['weights_final'][run_idx] = agent.weights
-    if hasattr(agent, "avg_reward"):
-        log['avgrew_final'][run_idx] = agent.avg_reward
-    if hasattr(env, "best_action_count"):
-        log['best_action_count'][run_idx] = env.best_action_count
+def save_final_weights(nonlinear, run_idx, log, env, agent, exp_name, exp_id, eval_mode):
+    if not eval_mode:
+        if nonlinear:
+            agent.save_trained_model(f'{exp_name}_{exp_id}_{run_idx}')
+        else:
+            log['weights_final'][run_idx] = agent.weights
+        if hasattr(agent, "avg_reward"):
+            log['avgrew_final'][run_idx] = agent.avg_reward
+        if hasattr(env, "best_action_count"):
+            log['best_action_count'][run_idx] = env.best_action_count
 
 
-def clean_up(nonlinear, location, exp_name, exp_id):
+def clean_up(nonlinear, location, exp_name, exp_id, eval_mode):
     """Zips the saved (non-linear) models of a particular param configuration."""
-    if nonlinear:
+    if nonlinear and not eval_mode:
         prefix = f'{location}{exp_name}_{exp_id}'
         with zipfile.ZipFile(f'{prefix}.zip', 'w') as myzip:
             for f in glob.glob(f'{location}{exp_name}_{exp_id}_*'):
@@ -146,12 +157,13 @@ def run_experiment_one_config(config):
     save_weights = config.get('save_weights', 0)
     num_weights = config['num_weights']
     # save_counts = config.get('save_visitation_counts', False)
-    csuite_env = config['csuite_env']
+    env_type = config['env_type']
     render = config.get('render', False)
     nonlinear = config.get('nonlinear', False)
     reward_offset = config.get('reward_offset', 0)
     store_max_action_values = config.get('store_max_action_values', False)
     bias = config.get('bias', False)
+    eval_mode = config.get('eval_mode', False)
 
     log = {'reward': np.zeros((num_runs, max_steps + 1), dtype=np.float32),
            # 'action': np.zeros((num_runs, max_steps + 1), dtype=np.float32),
@@ -181,26 +193,32 @@ def run_experiment_one_config(config):
     for run in tqdm(range(num_runs)):
         config['rng_seed'] = run
         agent = getattr(sys.modules[__name__], agent_map[agent_name])(**config)
-        if csuite_env:
+        if env_type == 'csuite':
             settings = {}
             if env_name == 'catch':
                 # non-linear FA with 50-d binary observations and linear FA with 3-d continuous observations
                 settings['observation_type'] = 'discrete' if nonlinear else 'continuous'
             env = csuite.load(env_map[env_name], settings)
             obs = env.start(seed=config['rng_seed'])
+        elif env_type == 'gym':
+            render_mode = 'human' if render else None
+            env = gym.make(env_map[env_name], render_mode=render_mode)
+            obs = env.reset()[0]
         else:
             env = getattr(sys.modules[__name__], env_map[env_name])(**config)
             obs = env.start()
-        # print(f'obs: {obs}')
         action = agent.start(process_observation(env_name, obs))
         viewer = None
         if render:
             viewer = rendering.SimpleImageViewer()
+        goal_count = 0
 
         for t in range(max_steps + 1):
-            # print(f'timestep: {t}')
             if render:
-                viewer.imshow(env.render())
+                if env_type == 'csuite':
+                    viewer.imshow(env.render())
+                elif env_type == 'gym':   
+                    env.render()
                 time.sleep(0.04)
             # logging relevant data at regular intervals
             if t % eval_every_n_steps == 0:
@@ -211,13 +229,19 @@ def run_experiment_one_config(config):
                          agent_name=agent_name,
                          bias=bias)
             # the environment and agent step
-            if csuite_env:
+            if env_type == 'csuite':
+                action = np.append(action, 0)
                 next_obs, reward = env.step(action)
+            elif env_type == 'gym':
+                next_obs, reward, terminated, _, _ = env.step(action)
+                if terminated:
+                    next_obs = env.reset()[0]
+                next_obs = next_obs
             else:
                 reward, next_obs = env.step(action)
+                if reward == 100:
+                    goal_count += 1
             reward += reward_offset
-            # print(f'action: {action}\nreward: {reward}\nobs: {next_obs}')
-            # print(f'reward: {reward:.3f}, r-bar: {agent.avg_reward:.3f}')
             action = agent.step(reward, process_observation(env_name, next_obs))
             # logging the reward at each step
             log['reward'][run][t] = reward
@@ -229,10 +253,11 @@ def run_experiment_one_config(config):
         if render:
             viewer.close()
 
-        save_final_weights(nonlinear=nonlinear,
+        # print(f'Run {run + 1} completed. Goal count: {goal_count}')
+        save_final_weights(nonlinear=nonlinear, eval_mode=eval_mode,
                            run_idx=run, log=log, env=env, agent=agent,
                            exp_name=exp_name, exp_id=config['exp_id'])
 
     print_experiment_summary(log, exp_type)
-    clean_up(nonlinear, config['output_folder'] + 'models/', exp_name, config['exp_id'])
+    # clean_up(nonlinear, config['output_folder'] + 'models/', exp_name, config['exp_id'], eval_mode)
     return log
