@@ -1,6 +1,6 @@
 {
-    "exp_name": "puckworld_cont_CDiscDDPG",
-    "env_name": "puckworld_continuous",
+    "exp_name": "pendulum_cont_CDiscDDPG_gamma0.8_128x128_noOU_ss0.001_0.001_100k_tau0.99",
+    "env_name": "pendulum_continuous",
     "env_type": "csuite",
     "agent_name": "CD_DDPG",
     "nonlinear": true,
@@ -13,10 +13,13 @@
     "net_sync_freq": 32,
     "batch_size": 128,
     "buffer_size": 10000,
-    "actor_arch": [6, 64, 64, 2],
-    "critic_arch": [8, 64, 64, 1],
-    "num_actions": 2,
-    "use_ou_noise": true,
+    "actor_arch": [3, 128, 128, 1],
+    "critic_arch": [4, 128, 128, 1],
+    "num_actions": 1,
+    "use_ou_noise": false,
+    "exploration_decay_type": "linear",
+    "exploration_sigma_init": 1,
+    "exploration_sigma_final": 0.1,
     "initial_exploration_only_steps": 10000,
     "num_weights": 0,
     "actor_optimizer": "Adam",
@@ -24,7 +27,7 @@
     "save_weights": 0,
     "store_max_action_values": true,
     "robust_to_initialization": true,
-    "tau": 0.95,
+    "tau": 0.99,
     "save_model_loc": "models/",
     "device": "cpu",
     "reward_offset": 0,
@@ -33,6 +36,6 @@
         "actor_step_size": [0.001],
         "critic_step_size": [0.001],
         "eta": [0.0],
-        "gamma": [0.99]
+        "gamma": [0.8]
     }
 }

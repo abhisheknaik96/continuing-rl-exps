@@ -143,10 +143,10 @@ class DeepBaseAgent:
             self._update_target_net()
             # update the learnable parameters
             self._update_params()
-            # update exploration parameters
-            self._update_exploration_parameters()
             # update the step size
             self._update_step_size()
+        # update exploration parameters
+        self._update_exploration_parameters()
 
         action = self._choose_action(observation)
         self.last_obs = observation
@@ -347,12 +347,14 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         self.initial_exploration_only_steps = agent_args.get('initial_exploration_only_steps', 5000)
         self.exploration_sigma_init = agent_args.get('exploration_sigma_init', 1)
         self.exploration_sigma_final = agent_args.get('exploration_sigma_final', 0.1)
+        self.exploration_decay_type = agent_args.get('exploration_decay_type', 'linear')
+        self.exploration_decay_param = agent_args.get('exploration_decay_param', 20000)
         self.exploration_sigma = self.exploration_sigma_init
         assert "num_max_steps" in agent_args, "num_max_steps needs to be specified in agent_args"
         self.num_max_steps = agent_args['num_max_steps']
         self.use_ou_noise = agent_args.get('use_ou_noise', False)
         if self.use_ou_noise:
-            self.ou_noise = OU_Noise(size=self.num_actions, seed=self.seed)
+            self.ou_noise = OU_Noise(size=(1, self.num_actions), seed=self.seed)
 
     def _initialize_optimizer(self, network, optimizer_name, step_size):
         if optimizer_name == 'SGD':
@@ -370,7 +372,7 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         if self.timestep < self.initial_exploration_only_steps:
             # noisy_actions = torch.rand((self.num_actions, 1)) * 2 - 1      # random action in [-1, 1]
             if self.use_ou_noise:
-                noisy_actions = torch.from_numpy(self.ou_noise.sample()).unsqueeze(1)
+                noisy_actions = torch.from_numpy(self.ou_noise.sample())
             else:
                 noisy_actions = torch.randint(-1, 2, (1, self.num_actions), dtype=torch.float32)     # random action in {-1, 0, 1}
         else:
@@ -432,15 +434,25 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
             p.requires_grad = True
     
     def _update_target_net(self):
+        "Update the target networks with 'soft' updates."
         if self.timestep % self.net_sync_freq == 0:
             for main_net, target_net in [(self.actor, self.actor_target), (self.critic, self.critic_target)]:
                 for main, target in zip(main_net.parameters(), target_net.parameters()):
-                    target.data.mul_(self.tau)
+                    target.data.mul_(self.tau)          # these are in-place operations
                     target.data.add_((1-self.tau) * main.data)
 
     def _update_exploration_parameters(self):
-        """Linear decay in the exploration parameter."""
-        self.exploration_sigma -= (self.exploration_sigma_init - self.exploration_sigma_final) / self.num_max_steps
+        """Update the exploration parameter."""
+        if self.exploration_decay_type == 'exponential':
+            self.exploration_sigma = self.exploration_sigma_final + (
+                self.exploration_sigma_init - self.exploration_sigma_final) * math.e ** (
+                        -self.timestep / self.exploration_decay_param)
+        elif self.exploration_decay_type == 'linear':
+            self.exploration_sigma -= (self.exploration_sigma_init - self.exploration_sigma_final) / self.num_max_steps
+            # self.exploration_sigma = self.exploration_sigma_init - (
+            #     self.exploration_sigma_init - self.exploration_sigma_final) * self.timestep / self.num_max_steps
+        else:
+            raise ValueError("exploration_decay_type needs to be 'exponential' or 'linear'")
 
     def save_trained_model(self, filename_suffix='DDPG'):
         """Saves the trained model to a file."""
