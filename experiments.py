@@ -210,16 +210,16 @@ def run_experiment_one_config(config):
         action = agent.start(process_observation(env_name, obs))
         viewer = None
         if render:
-            viewer = rendering.SimpleImageViewer()
+            viewer = rendering.VisualizationWindow()
         goal_count = 0
 
         for t in range(max_steps + 1):
             if render:
                 if env_type == 'csuite':
                     viewer.imshow(env.render())
-                elif env_type == 'gym':   
+                else:
                     env.render()
-                time.sleep(0.04)
+                time.sleep(0.06)
             # logging relevant data at regular intervals
             if t % eval_every_n_steps == 0:
                 log_data(interval=eval_every_n_steps, current_timestep=t,
@@ -253,7 +253,7 @@ def run_experiment_one_config(config):
         if render:
             viewer.close()
 
-        # print(f'Run {run + 1} completed. Goal count: {goal_count}')
+        print(f'Run {run + 1} completed. Goal count: {goal_count}')
         save_final_weights(nonlinear=nonlinear, eval_mode=eval_mode,
                            run_idx=run, log=log, env=env, agent=agent,
                            exp_name=exp_name, exp_id=config['exp_id'])
