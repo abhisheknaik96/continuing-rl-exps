@@ -6,6 +6,7 @@ import copy
 from collections import deque
 import numpy as np
 import torch
+from torch.distributions import MultivariateNormal
 from utils.helpers import validate_output_folder
 from utils.ou_noise import OU_Noise
 
@@ -366,7 +367,55 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         else:
             raise ValueError("optimizer needs to be SGD, Adam, or RMSprop")
         return optimizer
-        
+    
+    def _update_target_net(self):
+        "Update the target networks with 'soft' updates."
+        if self.timestep % self.net_sync_freq == 0:
+            for main_net, target_net in [(self.actor, self.actor_target), (self.critic, self.critic_target)]:
+                for main, target in zip(main_net.parameters(), target_net.parameters()):
+                    target.data.mul_(self.tau)          # these are in-place operations
+                    target.data.add_((1-self.tau) * main.data)
+
+    def _update_exploration_parameters(self):
+        """Update the exploration parameter."""
+        if self.exploration_decay_type == 'exponential':
+            self.exploration_sigma = self.exploration_sigma_final + (
+                self.exploration_sigma_init - self.exploration_sigma_final) * math.e ** (
+                        -self.timestep / self.exploration_decay_param)
+        elif self.exploration_decay_type == 'linear':
+            self.exploration_sigma -= (self.exploration_sigma_init - self.exploration_sigma_final) / self.num_max_steps
+            # self.exploration_sigma = self.exploration_sigma_init - (
+            #     self.exploration_sigma_init - self.exploration_sigma_final) * self.timestep / self.num_max_steps
+        else:
+            raise ValueError("exploration_decay_type needs to be 'exponential' or 'linear'")
+
+    def save_trained_model(self, filename_suffix='DDPG'):
+        """Saves the trained model to a file."""
+        actor_filename = self.save_model_loc + filename_suffix + '_actor.pth'
+        critic_filename = self.save_model_loc + filename_suffix + '_critic.pth'
+        torch.save(self.actor.state_dict(), actor_filename)
+        torch.save(self.critic.state_dict(), critic_filename)
+
+    def start(self, first_state):
+        action_tensor = super().start(first_state)
+        return action_tensor[0].numpy()    # return the action array instead of the 2D tensor containing the single action array
+
+    def step(self, reward, next_state):
+        action_tensor = super().step(reward, next_state)
+        return action_tensor[0].numpy()    # return the action array instead of the 2D tensor containing the single action array
+
+    def _choose_action(self, states):
+        """Takes a batch of states and returns the action for each."""
+        raise NotImplementedError
+
+    def _update_params(self):
+        """Updates the actor and critic parameters of the agent."""
+        raise NotImplementedError
+
+
+class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
+    """Implements the DDPG algorithm with reward centering."""
+
     def _choose_action(self, states):
         """Takes a batch of states and returns the action for each."""
         if self.timestep < self.initial_exploration_only_steps:
@@ -432,39 +481,68 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         # enable the gradient computation for the critic parameters for the next call to _update_params()
         for p in self.critic.parameters():
             p.requires_grad = True
-    
-    def _update_target_net(self):
-        "Update the target networks with 'soft' updates."
-        if self.timestep % self.net_sync_freq == 0:
-            for main_net, target_net in [(self.actor, self.actor_target), (self.critic, self.critic_target)]:
-                for main, target in zip(main_net.parameters(), target_net.parameters()):
-                    target.data.mul_(self.tau)          # these are in-place operations
-                    target.data.add_((1-self.tau) * main.data)
 
-    def _update_exploration_parameters(self):
-        """Update the exploration parameter."""
-        if self.exploration_decay_type == 'exponential':
-            self.exploration_sigma = self.exploration_sigma_final + (
-                self.exploration_sigma_init - self.exploration_sigma_final) * math.e ** (
-                        -self.timestep / self.exploration_decay_param)
-        elif self.exploration_decay_type == 'linear':
-            self.exploration_sigma -= (self.exploration_sigma_init - self.exploration_sigma_final) / self.num_max_steps
-            # self.exploration_sigma = self.exploration_sigma_init - (
-            #     self.exploration_sigma_init - self.exploration_sigma_final) * self.timestep / self.num_max_steps
-        else:
-            raise ValueError("exploration_decay_type needs to be 'exponential' or 'linear'")
 
-    def save_trained_model(self, filename_suffix='DDPG'):
-        """Saves the trained model to a file."""
-        actor_filename = self.save_model_loc + filename_suffix + '_actor.pth'
-        critic_filename = self.save_model_loc + filename_suffix + '_critic.pth'
-        torch.save(self.actor.state_dict(), actor_filename)
-        torch.save(self.critic.state_dict(), critic_filename)
+class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
+    """Implements the PPO algorithm with reward centering."""
 
-    def start(self, first_state):
-        action_tensor = super().start(first_state)
-        return action_tensor[0].numpy()    # return the action array instead of the 2D tensor containing the single action array
+    def _choose_action(self, states):
+        """Takes a batch of states and returns the action for each."""
+        with torch.no_grad():
+            actions = self.actor(states)
 
-    def step(self, reward, next_state):
-        action_tensor = super().step(reward, next_state)
-        return action_tensor[0].numpy()    # return the action array instead of the 2D tensor containing the single action array
+        exploration_covariance_matrix = torch.eye(self.num_actions) * self.exploration_sigma
+        action_distribution = MultivariateNormal(actions, exploration_covariance_matrix)
+        
+        noisy_actions = action_distribution.sample()
+        action_log_probability = action_distribution.log_prob(noisy_actions)
+        
+        noisy_actions = torch.clip(noisy_actions, -1, 1)
+
+        return noisy_actions.to(dtype=torch.float32)
+
+    def _update_params(self):
+        """Updates the actor and critic parameters of the agent."""
+        
+        if self.timestep < self.initial_exploration_only_steps:
+            return
+
+        # sample a batch of transitions
+        states, actions, rewards, next_states = self._sample_from_buffer()
+        
+        ### first, update the critic network
+        q_current = self.critic(torch.cat([states, actions], dim=1))
+        with torch.no_grad():
+            next_actions = self.actor_target(next_states)
+            q_next = self.critic_target(torch.cat([next_states, next_actions], dim=1))
+            target_return = rewards - self.avg_reward + self.gamma * q_next
+
+            # update the average-reward parameter
+            old_avg_reward = self.avg_reward
+            delta = target_return - q_current
+            self.avg_reward += self.beta * torch.mean(delta)
+
+            # in case the new avg-rew parameter should be used right away
+            if self.robust_to_initialization:
+                target_return += (old_avg_reward - self.avg_reward)
+        
+        # update the q_net parameters
+        critic_loss = self.critic_loss_fn(q_current, target_return)
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+        
+        # the critic params won't be changed during the actor update, so disable any gradient computation for them
+        for p in self.critic.parameters():
+            p.requires_grad = False
+
+        ### now, update the actor network
+        actions = self.actor(states)
+        actor_loss = -self.critic(torch.cat([states, actions], dim=1)).mean()
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
+
+        # enable the gradient computation for the critic parameters for the next call to _update_params()
+        for p in self.critic.parameters():
+            p.requires_grad = True
