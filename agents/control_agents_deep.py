@@ -102,10 +102,13 @@ class DeepBaseAgent:
         r = torch.tensor([[r]], device=self.device).float()
         self.experience_buffer.append([s, a, r, sn])
 
-    def _sample_from_buffer(self):
+    def _sample_from_buffer(self, in_order=False):
         """Samples a batch of experiences from the experience buffer."""
         num_samples = min(self.batch_size, len(self.experience_buffer))
-        sample = random.sample(self.experience_buffer, num_samples)
+        if not in_order:
+            sample = random.sample(self.experience_buffer, num_samples)
+        else:
+            raise NotImplementedError
         s, a, r, sn = zip(*sample)
         states = torch.cat(s, dim=0)
         actions = torch.cat(a, dim=0)
@@ -239,8 +242,7 @@ class DeepCenteredDiscountedValueBasedAgent(DeepBaseAgent):
         states, actions, rewards, next_states = self._sample_from_buffer()
 
         # predict expected return of current state using main network
-        qs = self.q_net(states)
-        pred_return = qs.gather(1, actions)
+        pred_return = self.q_net(states)
 
         # get target return using target network
         next_actions = None
@@ -486,20 +488,25 @@ class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
 class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
     """Implements the PPO algorithm with reward centering."""
 
-    def _choose_action(self, states):
-        """Takes a batch of states and returns the action for each."""
+    def _evaluate_policy(self, states, noisy_actions=None):
+        """
+        Takes a batch of states and returns the action and its log_probability for each,
+        along with the policy's entropy.
+        """
         with torch.no_grad():
             actions = self.actor(states)
 
-        exploration_covariance_matrix = torch.eye(self.num_actions) * self.exploration_sigma
+        exploration_covariance_matrix = torch.eye(self.num_actions) * self.exploration_sigma        # ToDo: can avoid recreating this each time
         action_distribution = MultivariateNormal(actions, exploration_covariance_matrix)
-        
-        noisy_actions = action_distribution.sample()
+
+        if noisy_actions is not None:
+            noisy_actions = action_distribution.sample()
         action_log_probability = action_distribution.log_prob(noisy_actions)
+        entropy = action_distribution.entropy()
         
         noisy_actions = torch.clip(noisy_actions, -1, 1)
 
-        return noisy_actions.to(dtype=torch.float32)
+        return noisy_actions.to(dtype=torch.float32), action_log_probability, entropy
 
     def _update_params(self):
         """Updates the actor and critic parameters of the agent."""
@@ -508,26 +515,27 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             return
 
         # sample a batch of transitions
-        states, actions, rewards, next_states = self._sample_from_buffer()
+        states, actions, rewards, next_states = self._sample_from_buffer()      # ToDo: modify later to 'sample' in order
         
         ### first, update the critic network
-        q_current = self.critic(torch.cat([states, actions], dim=1))
+        v_current = self.critic(states)
         with torch.no_grad():
-            next_actions = self.actor_target(next_states)
-            q_next = self.critic_target(torch.cat([next_states, next_actions], dim=1))
-            target_return = rewards - self.avg_reward + self.gamma * q_next
+            v_next = self.critic_target(next_states)
+            target_return = rewards - self.avg_reward + self.gamma * v_next
 
             # update the average-reward parameter
             old_avg_reward = self.avg_reward
-            delta = target_return - q_current
+            delta = target_return - v_current
             self.avg_reward += self.beta * torch.mean(delta)
 
             # in case the new avg-rew parameter should be used right away
             if self.robust_to_initialization:
                 target_return += (old_avg_reward - self.avg_reward)
         
-        # update the q_net parameters
-        critic_loss = self.critic_loss_fn(q_current, target_return)
+        advantages = target_return      # ToDo: in the future, this'll be a sum of TD errors
+
+        # update the critic parameters
+        critic_loss = self.critic_loss_fn(v_current, target_return)
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
@@ -537,8 +545,13 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             p.requires_grad = False
 
         ### now, update the actor network
-        actions = self.actor(states)
-        actor_loss = -self.critic(torch.cat([states, actions], dim=1)).mean()
+        _, log_probs_latest, entropy_latest = self._evaluate_policy(states, actions)
+        ratios = torch.exp(log_probs_latest - log_probs)
+        actor_objective_cpi_term1 = ratios * advantages
+        actor_objective_cpi_term2 = torch.clip(ratios, 1 - self.obj_clip_epsilon, 1 + self.obj_clip_epsilon) * advantages
+        actor_objective_cpi = -torch.min(actor_objective_cpi_term1, actor_objective_cpi_term2).mean()
+        actor_loss = actor_objective_cpi + self.entropy_weight * entropy_latest
+        
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
