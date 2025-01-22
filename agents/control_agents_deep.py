@@ -488,6 +488,67 @@ class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
 class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
     """Implements the PPO algorithm with reward centering."""
 
+    def __init__(self, **agent_args):
+        super().__init__(**agent_args)
+        self.actor_target = None
+        self.num_epochs_per_update = agent_args.get('num_epochs_per_update', 10)
+
+    def _choose_action(self, observation):
+        action, action_log_prob, _ = self._evaluate_policy(observation)
+        self.last_obs = observation
+        self.last_action = action
+        self.last_action_log_prob = action_log_prob
+        return action
+
+    def start(self, first_obs):
+        """Returns the first action corresponding to the first state."""
+        observation = self._process_raw_observation(first_obs)
+        action = self._choose_action(observation) 
+        return action
+
+    def step(self, reward, next_state):
+        """Updates the parameters and returns a new action."""
+        self.timestep += 1
+
+        observation = self._process_raw_observation(next_state)
+        self._add_to_buffer([self.last_obs, self.last_action, reward, observation, self.last_action_log_prob])
+
+        # if time to update parameters
+        if self.timestep % self.param_update_freq == 0:
+            # update target network
+            self._update_target_net()
+            # update the learnable parameters
+            self._update_params()
+            # update the step size
+            self._update_step_size()
+        # update exploration parameters
+        self._update_exploration_parameters()
+
+        action = self._choose_action(observation)
+        return action
+
+    def _add_to_buffer(self, experience):
+        """Adds a single experience to the experience buffer."""
+        s, a, r, sn, action_log_prob = experience
+        r = torch.tensor([[r]], device=self.device).float()
+        action_log_prob = torch.tensor([[action_log_prob]], device=self.device).float()
+        self.experience_buffer.append([s, a, r, sn, action_log_prob])
+
+    def _sample_from_buffer(self, in_order=False):
+        """Samples a batch of experiences from the experience buffer."""
+        num_samples = min(self.batch_size, len(self.experience_buffer))
+        if not in_order:
+            sample = random.sample(self.experience_buffer, num_samples)
+        else:
+            raise NotImplementedError
+        s, a, r, sn = zip(*sample)
+        states = torch.cat(s, dim=0)
+        actions = torch.cat(a, dim=0)
+        rewards = torch.cat(r, dim=0)
+        next_states = torch.cat(sn, dim=0)
+
+        return states, actions, rewards, next_states
+
     def _evaluate_policy(self, states, noisy_actions=None):
         """
         Takes a batch of states and returns the action and its log_probability for each,
@@ -508,6 +569,23 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
         return noisy_actions.to(dtype=torch.float32), action_log_probability, entropy
 
+    def _compute_returns_advantages(self, rewards, values, last_value):
+        trajectory_length = rewards.shape()[0]
+        returns = torch.zeros((trajectory_length))      # ToDo: check shape
+        advantages = torch.zeros((trajectory_length))
+
+        # initialize
+        returns[-1] = rewards[-1] + self.gamma * last_value
+        advantages[-1] = returns[-1] - values[-1]
+        # compute for every other index 
+        for i in range(trajectory_length-1, 0, -1):
+            returns[i] = rewards[i] + self.gamma * returns[i+1] 
+            td_error = rewards[i] + self.gamma * values[i+1] - values[i]
+            advantages[i] = td_error + self.gamma * advantages[i+1]   # ToDo: a lambda goes here to implement GAE
+        
+        return returns, advantages
+
+
     def _update_params(self):
         """Updates the actor and critic parameters of the agent."""
         
@@ -515,47 +593,51 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             return
 
         # sample a batch of transitions
-        states, actions, rewards, next_states = self._sample_from_buffer()      # ToDo: modify later to 'sample' in order
-        
-        ### first, update the critic network
-        v_current = self.critic(states)
-        with torch.no_grad():
-            v_next = self.critic_target(next_states)
-            target_return = rewards - self.avg_reward + self.gamma * v_next
+        states, actions, rewards, next_states, action_log_probs = self._sample_from_buffer()      # ToDo: modify later to 'sample' in order
+        values = self.critic(torch.cat([states, next_states[:-1]]))
+        returns, advantages = self._compute_returns_advantages(rewards, values=values[:-1], last_value=values[-1])
 
-            # update the average-reward parameter
-            old_avg_reward = self.avg_reward
-            delta = target_return - v_current
-            self.avg_reward += self.beta * torch.mean(delta)
+        for _ in range(self.num_epochs_per_update):
 
-            # in case the new avg-rew parameter should be used right away
-            if self.robust_to_initialization:
-                target_return += (old_avg_reward - self.avg_reward)
-        
-        advantages = target_return      # ToDo: in the future, this'll be a sum of TD errors
+            ### first, update the critic network
+            v_current = self.critic(states)
+            with torch.no_grad():
+                v_next = self.critic_target(next_states)
+                target_return = rewards - self.avg_reward + self.gamma * v_next
 
-        # update the critic parameters
-        critic_loss = self.critic_loss_fn(v_current, target_return)
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic_optimizer.step()
-        
-        # the critic params won't be changed during the actor update, so disable any gradient computation for them
-        for p in self.critic.parameters():
-            p.requires_grad = False
+                # update the average-reward parameter
+                old_avg_reward = self.avg_reward
+                delta = target_return - v_current
+                self.avg_reward += self.beta * torch.mean(delta)
 
-        ### now, update the actor network
-        _, log_probs_latest, entropy_latest = self._evaluate_policy(states, actions)
-        ratios = torch.exp(log_probs_latest - log_probs)
-        actor_objective_cpi_term1 = ratios * advantages
-        actor_objective_cpi_term2 = torch.clip(ratios, 1 - self.obj_clip_epsilon, 1 + self.obj_clip_epsilon) * advantages
-        actor_objective_cpi = -torch.min(actor_objective_cpi_term1, actor_objective_cpi_term2).mean()
-        actor_loss = actor_objective_cpi + self.entropy_weight * entropy_latest
-        
-        self.actor_optimizer.zero_grad()
-        actor_loss.backward()
-        self.actor_optimizer.step()
+                # in case the new avg-rew parameter should be used right away
+                if self.robust_to_initialization:
+                    target_return += (old_avg_reward - self.avg_reward)
+            
+            advantages = target_return      # ToDo: in the future, this'll be a sum of TD errors
 
-        # enable the gradient computation for the critic parameters for the next call to _update_params()
-        for p in self.critic.parameters():
-            p.requires_grad = True
+            # update the critic parameters
+            critic_loss = self.critic_loss_fn(v_current, target_return)
+            self.critic_optimizer.zero_grad()
+            critic_loss.backward()
+            self.critic_optimizer.step()
+            
+            # the critic params won't be changed during the actor update, so disable any gradient computation for them
+            for p in self.critic.parameters():
+                p.requires_grad = False
+
+            ### now, update the actor network
+            _, action_log_probs_latest, entropy_latest = self._evaluate_policy(states, actions)
+            ratios = torch.exp(action_log_probs_latest - action_log_probs)
+            actor_objective_cpi_term1 = ratios * advantages
+            actor_objective_cpi_term2 = torch.clip(ratios, 1 - self.obj_clip_epsilon, 1 + self.obj_clip_epsilon) * advantages
+            actor_objective_cpi = -torch.min(actor_objective_cpi_term1, actor_objective_cpi_term2).mean()
+            actor_loss = actor_objective_cpi + self.entropy_weight * entropy_latest
+
+            self.actor_optimizer.zero_grad()
+            actor_loss.backward()
+            self.actor_optimizer.step()
+
+            # enable the gradient computation for the critic parameters for the next call to _update_params()
+            for p in self.critic.parameters():
+                p.requires_grad = True
