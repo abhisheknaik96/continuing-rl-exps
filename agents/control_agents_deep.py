@@ -4,6 +4,7 @@ import math
 import random
 import copy
 from collections import deque
+import itertools
 import numpy as np
 import torch
 from torch.distributions import MultivariateNormal
@@ -322,7 +323,6 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         self.actor_arch = agent_args['actor_arch']
         self.num_actions = self.actor_arch[-1]
         self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), final_activation_layer=torch.nn.Tanh()).to(self.device)
-        self.actor_target = copy.deepcopy(self.actor).to(self.device)
         self.load_model_from = agent_args.get('load_model_from', None)
         if self.load_model_from is not None:
             self.actor.load_state_dict(torch.load(self.load_model_from))
@@ -331,11 +331,15 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         # initialize the critic network (and its target network)
         assert 'critic_arch' in agent_args, "critic_arch needs to be specified in agent_args"
         self.critic_arch = agent_args['critic_arch']
-        assert self.critic_arch[0] == self.actor_arch[0] + self.actor_arch[-1], "the input of the critic network should be the concatenation of the state features and actions"
         assert self.critic_arch[-1] == 1, "the output of the critic network should be a single value"
         self.critic = build_fc_net(self.critic_arch, activation=torch.nn.ReLU()).to(self.device)
-        self.critic_target = copy.deepcopy(self.critic).to(self.device)
-        self.tau = agent_args.get('tau', 0.995) # parameter for target networks' soft updates
+
+        # initialize the target networks, if any
+        self.target_nets = agent_args.get('target_nets', True)
+        if self.target_nets:
+            self.actor_target = copy.deepcopy(self.actor).to(self.device)
+            self.critic_target = copy.deepcopy(self.critic).to(self.device)
+            self.tau = agent_args.get('tau', 0.995) # parameter for target networks' soft updates
 
         # initialize the loss functions and optimizers
         self.actor_optimizer_name = agent_args.get('actor_optimizer', 'None')
@@ -355,9 +359,6 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         self.exploration_sigma = self.exploration_sigma_init
         assert "num_max_steps" in agent_args, "num_max_steps needs to be specified in agent_args"
         self.num_max_steps = agent_args['num_max_steps']
-        self.use_ou_noise = agent_args.get('use_ou_noise', False)
-        if self.use_ou_noise:
-            self.ou_noise = OU_Noise(size=(1, self.num_actions), seed=self.seed)
 
     def _initialize_optimizer(self, network, optimizer_name, step_size):
         if optimizer_name == 'SGD':
@@ -372,7 +373,7 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
     
     def _update_target_net(self):
         "Update the target networks with 'soft' updates."
-        if self.timestep % self.net_sync_freq == 0:
+        if self.target_nets and (self.timestep % self.net_sync_freq == 0):
             for main_net, target_net in [(self.actor, self.actor_target), (self.critic, self.critic_target)]:
                 for main, target in zip(main_net.parameters(), target_net.parameters()):
                     target.data.mul_(self.tau)          # these are in-place operations
@@ -417,6 +418,15 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
 
 class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
     """Implements the DDPG algorithm with reward centering."""
+
+    def __init__(self, **agent_args):
+        super().__init__(**agent_args)
+        assert self.critic_arch[0] == self.actor_arch[0] + self.actor_arch[-1], \
+            "the input to the action-value critic network should be the concatenation of the state features and actions"
+        self.target_nets = True
+        self.use_ou_noise = agent_args.get('use_ou_noise', False)
+        if self.use_ou_noise:
+            self.ou_noise = OU_Noise(size=(1, self.num_actions), seed=self.seed)
 
     def _choose_action(self, states):
         """Takes a batch of states and returns the action for each."""
@@ -490,8 +500,11 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
     def __init__(self, **agent_args):
         super().__init__(**agent_args)
-        self.actor_target = None
+        self.target_nets = False
         self.num_epochs_per_update = agent_args.get('num_epochs_per_update', 10)
+        self.buffer_sample_start_idx = 0
+        assert self.batch_size < self.param_update_freq and self.param_update_freq % self.batch_size == 0, \
+            "param_update_freq should be a multiple of batch_size"
 
     def _choose_action(self, observation):
         action, action_log_prob, _ = self._evaluate_policy(observation)
@@ -534,13 +547,12 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         action_log_prob = torch.tensor([[action_log_prob]], device=self.device).float()
         self.experience_buffer.append([s, a, r, sn, action_log_prob])
 
-    def _sample_from_buffer(self, in_order=False):
+    def _sample_from_buffer(self):
         """Samples a batch of experiences from the experience buffer."""
-        num_samples = min(self.batch_size, len(self.experience_buffer))
-        if not in_order:
-            sample = random.sample(self.experience_buffer, num_samples)
-        else:
-            raise NotImplementedError
+        sample = list(itertools.islice(self.experience_buffer, self.buffer_sample_start_idx, 
+                                       self.buffer_sample_start_idx + self.batch_size))
+        self.buffer_sample_start_idx = (self.buffer_sample_start_idx + self.batch_size)  % self.buffer_size
+
         s, a, r, sn, a_log_prob = zip(*sample)
         states = torch.cat(s, dim=0)
         actions = torch.cat(a, dim=0)
@@ -555,16 +567,16 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         Takes a batch of states and returns the action and its log_probability for each,
         along with the policy's entropy.
         """
-        if noisy_actions is not None:       # that is, when evaluating some actions
-            actions = self.actor(states)
-        else:
+        if noisy_actions is None:           # that is, when requiring an action for a state
             with torch.no_grad():
                 actions = self.actor(states)
+        else:                               # when evaluating given actions
+            actions = self.actor(states)
 
-        exploration_covariance_matrix = torch.eye(self.num_actions) * self.exploration_sigma        # ToDo: can avoid recreating this each time
-        action_distribution = MultivariateNormal(actions, exploration_covariance_matrix)
+        exploration_covariance_matrix = torch.eye(self.num_actions).unsqueeze(0) * self.exploration_sigma        # ToDo: can avoid recreating this each time
+        action_distribution = MultivariateNormal(actions, exploration_covariance_matrix.repeat(actions.shape[0], 1, 1))
 
-        if noisy_actions is not None:
+        if noisy_actions is None:
             noisy_actions = action_distribution.sample()
         action_log_probability = action_distribution.log_prob(noisy_actions)
         entropy = action_distribution.entropy()
@@ -574,7 +586,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         return noisy_actions.to(dtype=torch.float32), action_log_probability, entropy
 
     def _compute_returns_advantages(self, rewards, states, next_states, trajectory_length):
-        returns = torch.zeros((trajectory_length))      # ToDo: check shape
+        returns = torch.zeros((trajectory_length))
         advantages = torch.zeros((trajectory_length))
 
         with torch.no_grad():
@@ -584,8 +596,8 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         # initialize
         returns[-1] = rewards[-1] + self.gamma * v_next[-1]
         advantages[-1] = returns[-1] - v_current[-1]
-        # compute for every other index 
-        for i in range(trajectory_length-1, 0, -1):
+        # compute for every other index (from the last to first)
+        for i in range(0, trajectory_length-1)[::-1]:
             returns[i] = rewards[i] + self.gamma * returns[i+1] 
             td_error = rewards[i] + self.gamma * v_current[i+1] - v_current[i]
             advantages[i] = td_error + self.gamma * advantages[i+1]   # ToDo: a lambda goes here to implement GAE
@@ -600,10 +612,10 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             return
 
         # sample a batch of transitions
-        states, actions, rewards, next_states, action_log_probs = self._sample_from_buffer(in_order=True)
+        states, actions, rewards, next_states, action_log_probs = self._sample_from_buffer()
         
         # compute returns and advantages
-        trajectory_length = rewards.shape()[0]
+        trajectory_length = rewards.shape[0]
         returns, advantages = self._compute_returns_advantages(rewards, states, next_states, trajectory_length)
 
         for _ in range(self.num_epochs_per_update):
