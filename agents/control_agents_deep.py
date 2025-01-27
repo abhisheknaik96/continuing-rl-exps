@@ -119,16 +119,37 @@ class DeepBaseAgent:
         return states, actions, rewards, next_states
 
     def _process_raw_observation(self, obs: np.ndarray):
-        """Takes an ndarray, flattens it, and returns it in a batch form.
+        """
+        Takes an ndarray, normalizes it (using Welford's online algorithm), 
+        flattens it, and returns it in a batch form.
+
         Args:
             obs: ndarray of arbitrary size
         Returns:
             tensor of shape (1, flattened_size_of_obs)
         """
-        return torch.tensor(obs, dtype=torch.float, device=self.device).flatten().unsqueeze(0)
+        # update the running estimate of the mean
+        delta = obs - self.obs_mean
+        self.obs_mean += delta / self.timestep    
+
+        # update the running estimate of the variance
+        delta_2 = obs - self.obs_mean
+        self.obs_m2 += delta * delta_2
+        obs_std = np.sqrt(self.obs_m2 / self.timestep)
+
+        # compute the normalized observation
+        obs_normalized = (obs - self.obs_mean) / obs_std if self.timestep > 10 else obs
+
+        # if self.timestep % 100 == 0:
+        #     print(obs, obs_normalized)
+        # if self.timestep % 1000 == 0:
+        #     print("Running stats: ", self.obs_mean, obs_std)
+
+        return torch.tensor(obs_normalized, dtype=torch.float, device=self.device).flatten().unsqueeze(0)
 
     def start(self, first_state):
         """Returns the first action corresponding to the first state."""
+        self.timestep += 1
         observation = self._process_raw_observation(first_state)
         action = self._choose_action(observation)
         self.last_obs = observation
@@ -341,6 +362,10 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
             self.critic_target = copy.deepcopy(self.critic).to(self.device)
             self.tau = agent_args.get('tau', 0.995) # parameter for target networks' soft updates
 
+        # initializing the parameters for normalizing observations
+        self.obs_mean = np.zeros(self.actor_arch[0])
+        self.obs_m2 = np.ones(self.actor_arch[0]) * 0.01
+
         # initialize the loss functions and optimizers
         self.actor_optimizer_name = agent_args.get('actor_optimizer', 'None')
         self.actor_step_size = agent_args.get('actor_step_size', 1e-3)
@@ -515,6 +540,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
     def start(self, first_obs):
         """Returns the first action corresponding to the first state."""
+        self.timestep += 1
         observation = self._process_raw_observation(first_obs)
         action = self._choose_action(observation) 
         return action

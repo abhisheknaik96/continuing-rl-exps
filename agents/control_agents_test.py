@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from agents.control_agents import DifferentialQlearningAgent
+# from agents.control_agents import DifferentialQlearningAgent
 
 
 class TestDiffQAgent(unittest.TestCase):
@@ -37,4 +37,27 @@ class TestDiffQAgent(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    # unittest.main()
+
+    test_data = np.arange(10, dtype=np.float32)[..., np.newaxis]
+    test_data = np.concatenate((test_data, -test_data), axis=1)
+    # test_data = np.concatenate((test_data, test_data[::-1]), axis=1)
+
+    current_obs_mean = np.array([0.0, 0.0])
+    current_obs_m2 = np.array([0.001, 0.001])
+    n = 0
+
+    for i in range(test_data.shape[0]):
+        obs = test_data[i]
+        n += 1
+        
+        # update the running estimate of the mean
+        delta = obs - current_obs_mean
+        current_obs_mean += delta / n
+        
+        # update the running estimate of the variance
+        delta_2 = obs - current_obs_mean
+        current_obs_m2 += delta * delta_2
+        obs_std = np.sqrt(current_obs_m2 / n)
+
+        print(obs, current_obs_mean, obs_std, (obs - current_obs_mean) / obs_std)
