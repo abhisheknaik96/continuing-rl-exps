@@ -576,9 +576,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
     def _sample_from_buffer(self):
         """Samples a batch of experiences from the experience buffer."""
-        sample = list(itertools.islice(self.experience_buffer, self.buffer_sample_start_idx, 
-                                       self.buffer_sample_start_idx + self.batch_size))
-        self.buffer_sample_start_idx = (self.buffer_sample_start_idx + self.batch_size)  % self.buffer_size
+        sample = copy.copy(self.experience_buffer)
 
         s, a, r, sn, a_log_prob = zip(*sample)
         states = torch.cat(s, dim=0)
@@ -606,7 +604,6 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         if noisy_actions is None:
             noisy_actions = action_distribution.sample()
         action_log_probability = action_distribution.log_prob(noisy_actions)
-        print(f"{self.timestep}: ", states, actions, noisy_actions, action_log_probability)
         entropy = action_distribution.entropy()
         
         # noisy_actions = torch.clip(noisy_actions, -1, 1)
@@ -632,7 +629,6 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         
         return returns.unsqueeze(1), advantages.unsqueeze(1)
 
-
     def _update_params(self):
         """Updates the actor and critic parameters of the agent."""
         
@@ -640,38 +636,47 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             return
 
         # sample a batch of transitions
-        states, actions, rewards, next_states, action_log_probs = self._sample_from_buffer()
+        states_all, actions_all, rewards_all, next_states_all, action_log_probs_all = self._sample_from_buffer()
 
         # compute returns and advantages
-        trajectory_length = rewards.shape[0]
-        returns, advantages = self._compute_returns_advantages(rewards, states, next_states, trajectory_length)
+        trajectory_length = rewards_all.shape[0]
+        returns_all, advantages_all = self._compute_returns_advantages(rewards_all, states_all, next_states_all, trajectory_length)
+
+        # shuffle the indices for minibatch updates within the epochs
+        indices = random.sample(list(range(trajectory_length)), k=trajectory_length)
+        minibatch_indices = np.array_split(indices, trajectory_length // self.batch_size)
 
         for _ in range(self.num_epochs_per_update):
 
-            # ToDo: add the iterative pass over the buffer
+            for idx in minibatch_indices:
+                states = states_all[idx]
+                actions = actions_all[idx]
+                returns = returns_all[idx]
+                action_log_probs = action_log_probs_all[idx]
+                advantages = advantages_all[idx]
 
-            ### first, update the critic parameters
+                ### first, update the critic parameters
 
-            # update the average-reward parameter
-            v_current = self.critic(states)
-            old_avg_reward = self.avg_reward
-            self.avg_reward += self.beta * torch.mean(returns - v_current)
-            returns += (old_avg_reward - self.avg_reward) * trajectory_length
+                # update the average-reward parameter
+                v_current = self.critic(states)
+                # old_avg_reward = self.avg_reward
+                # self.avg_reward += self.beta * torch.mean(returns - v_current)
+                # returns += (old_avg_reward - self.avg_reward) * trajectory_length       # ToDo: this is incorrect
 
-            # update the critic-network parameters
-            critic_loss = self.critic_loss_fn(v_current, returns)
-            self.critic_optimizer.zero_grad()
-            critic_loss.backward()
-            self.critic_optimizer.step()
+                # update the critic-network parameters
+                critic_loss = self.critic_loss_fn(v_current, returns)
+                self.critic_optimizer.zero_grad()
+                critic_loss.backward()
+                self.critic_optimizer.step()
 
-            ### now, update the actor parameters
-            _, action_log_probs_latest, entropy_latest = self._evaluate_policy(states, actions)
-            ratios = torch.exp(action_log_probs_latest - action_log_probs)
-            actor_objective_cpi_term1 = ratios * advantages
-            actor_objective_cpi_term2 = torch.clip(ratios, 1 - self.obj_clip_epsilon, 1 + self.obj_clip_epsilon) * advantages
-            actor_objective_cpi = -torch.min(actor_objective_cpi_term1, actor_objective_cpi_term2).mean()
-            actor_loss = actor_objective_cpi - self.entropy_weight * entropy_latest.mean()      # maximize entropy
+                ### now, update the actor parameters
+                _, action_log_probs_latest, entropy_latest = self._evaluate_policy(states, actions)
+                ratios = torch.exp(action_log_probs_latest - action_log_probs)
+                actor_objective_cpi_term1 = ratios * advantages
+                actor_objective_cpi_term2 = torch.clip(ratios, 1 - self.obj_clip_epsilon, 1 + self.obj_clip_epsilon) * advantages
+                actor_objective_cpi = -torch.min(actor_objective_cpi_term1, actor_objective_cpi_term2).mean()
+                actor_loss = actor_objective_cpi - self.entropy_weight * entropy_latest.mean()      # maximize entropy
 
-            self.actor_optimizer.zero_grad()
-            actor_loss.backward()
-            self.actor_optimizer.step()
+                self.actor_optimizer.zero_grad()
+                actor_loss.backward()
+                self.actor_optimizer.step()
