@@ -140,11 +140,6 @@ class DeepBaseAgent:
         # compute the normalized observation
         obs_normalized = (obs - self.obs_mean) / obs_std if self.timestep > 10 else obs
 
-        # if self.timestep % 100 == 0:
-        #     print(obs, obs_normalized)
-        # if self.timestep % 1000 == 0:
-        #     print("Running stats: ", self.obs_mean, obs_std)
-
         return torch.tensor(obs_normalized, dtype=torch.float, device=self.device).flatten().unsqueeze(0)
 
     def start(self, first_state):
@@ -406,6 +401,9 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
 
     def _update_exploration_parameters(self):
         """Update the exploration parameter."""
+        if self.timestep < self.initial_exploration_only_steps:
+            return
+        
         if self.exploration_decay_type == 'exponential':
             self.exploration_sigma = self.exploration_sigma_final + (
                 self.exploration_sigma_init - self.exploration_sigma_final) * math.e ** (
@@ -527,9 +525,12 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         super().__init__(**agent_args)
         self.target_nets = False
         self.num_epochs_per_update = agent_args.get('num_epochs_per_update', 10)
+        self.buffer_size = self.param_update_freq
         self.buffer_sample_start_idx = 0
         assert self.batch_size < self.param_update_freq and self.param_update_freq % self.batch_size == 0, \
             "param_update_freq should be a multiple of batch_size"
+        self.obj_clip_epsilon = agent_args.get('obj_clip_epsilon', 0.2)
+        self.entropy_weight = agent_args.get('entropy_weight', 0.00)
 
     def _choose_action(self, observation):
         action, action_log_prob, _ = self._evaluate_policy(observation)
@@ -554,13 +555,13 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
         # if time to update parameters
         if self.timestep % self.param_update_freq == 0:
-            # update target network
+            # update the target networks, if any
             self._update_target_net()
             # update the learnable parameters
             self._update_params()
-            # update the step size
+            # update the step size(s)
             self._update_step_size()
-        # update exploration parameters
+        # update the exploration parameters
         self._update_exploration_parameters()
 
         action = self._choose_action(observation)
@@ -570,7 +571,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         """Adds a single experience to the experience buffer."""
         s, a, r, sn, action_log_prob = experience
         r = torch.tensor([[r]], device=self.device).float()
-        action_log_prob = torch.tensor([[action_log_prob]], device=self.device).float()
+        # action_log_prob = torch.tensor([action_log_prob], device=self.device).float()
         self.experience_buffer.append([s, a, r, sn, action_log_prob])
 
     def _sample_from_buffer(self):
@@ -593,7 +594,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         Takes a batch of states and returns the action and its log_probability for each,
         along with the policy's entropy.
         """
-        if noisy_actions is None:           # that is, when requiring an action for a state
+        if noisy_actions is None:           # when requiring an action for a state
             with torch.no_grad():
                 actions = self.actor(states)
         else:                               # when evaluating given actions
@@ -609,7 +610,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         
         noisy_actions = torch.clip(noisy_actions, -1, 1)
 
-        return noisy_actions.to(dtype=torch.float32), action_log_probability, entropy
+        return noisy_actions.to(dtype=torch.float32), action_log_probability.unsqueeze(1), entropy
 
     def _compute_returns_advantages(self, rewards, states, next_states, trajectory_length):
         returns = torch.zeros((trajectory_length))
@@ -628,7 +629,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             td_error = rewards[i] + self.gamma * v_current[i+1] - v_current[i]
             advantages[i] = td_error + self.gamma * advantages[i+1]   # ToDo: a lambda goes here to implement GAE
         
-        return returns, advantages
+        return returns.unsqueeze(1), advantages.unsqueeze(1)
 
 
     def _update_params(self):
@@ -645,6 +646,8 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         returns, advantages = self._compute_returns_advantages(rewards, states, next_states, trajectory_length)
 
         for _ in range(self.num_epochs_per_update):
+
+            # ToDo: add the iterative pass over the buffer
 
             ### first, update the critic parameters
 
@@ -666,7 +669,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             actor_objective_cpi_term1 = ratios * advantages
             actor_objective_cpi_term2 = torch.clip(ratios, 1 - self.obj_clip_epsilon, 1 + self.obj_clip_epsilon) * advantages
             actor_objective_cpi = -torch.min(actor_objective_cpi_term1, actor_objective_cpi_term2).mean()
-            actor_loss = actor_objective_cpi - self.entropy_weight * entropy_latest
+            actor_loss = actor_objective_cpi - self.entropy_weight * entropy_latest.mean()      # maximize entropy
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
