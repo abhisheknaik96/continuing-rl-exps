@@ -409,9 +409,8 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
                 self.exploration_sigma_init - self.exploration_sigma_final) * math.e ** (
                         -self.timestep / self.exploration_decay_param)
         elif self.exploration_decay_type == 'linear':
-            self.exploration_sigma -= (self.exploration_sigma_init - self.exploration_sigma_final) / self.num_max_steps
-            # self.exploration_sigma = self.exploration_sigma_init - (
-            #     self.exploration_sigma_init - self.exploration_sigma_final) * self.timestep / self.num_max_steps
+            self.exploration_sigma -= (self.exploration_sigma_init - 
+                                       self.exploration_sigma_final) * self.param_update_freq / self.num_max_steps
         else:
             raise ValueError("exploration_decay_type needs to be 'exponential' or 'linear'")
 
@@ -527,7 +526,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.num_epochs_per_update = agent_args.get('num_epochs_per_update', 10)
         self.buffer_size = self.param_update_freq
         self.buffer_sample_start_idx = 0
-        assert self.batch_size < self.param_update_freq and self.param_update_freq % self.batch_size == 0, \
+        assert self.batch_size <= self.param_update_freq and self.param_update_freq % self.batch_size == 0, \
             "param_update_freq should be a multiple of batch_size"
         self.obj_clip_epsilon = agent_args.get('obj_clip_epsilon', 0.2)
         self.entropy_weight = agent_args.get('entropy_weight', 0.00)
@@ -548,9 +547,9 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
     def step(self, reward, next_state):
         """Updates the parameters and returns a new action."""
-        self.timestep += 1
 
         observation = self._process_raw_observation(next_state)
+        # print(f"{self.timestep}: ", self.last_obs, self.last_action, reward, observation, self.last_action_log_prob)
         self._add_to_buffer([self.last_obs, self.last_action, reward, observation, self.last_action_log_prob])
 
         # if time to update parameters
@@ -561,11 +560,12 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             self._update_params()
             # update the step size(s)
             self._update_step_size()
-        # update the exploration parameters
-        self._update_exploration_parameters()
-
+            # update the exploration parameters
+            self._update_exploration_parameters()
+        self.timestep += 1
+        
         action = self._choose_action(observation)
-        return action
+        return torch.clip(action, -1, 1)
 
     def _add_to_buffer(self, experience):
         """Adds a single experience to the experience buffer."""
@@ -606,9 +606,10 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         if noisy_actions is None:
             noisy_actions = action_distribution.sample()
         action_log_probability = action_distribution.log_prob(noisy_actions)
+        print(f"{self.timestep}: ", states, actions, noisy_actions, action_log_probability)
         entropy = action_distribution.entropy()
         
-        noisy_actions = torch.clip(noisy_actions, -1, 1)
+        # noisy_actions = torch.clip(noisy_actions, -1, 1)
 
         return noisy_actions.to(dtype=torch.float32), action_log_probability.unsqueeze(1), entropy
 
@@ -640,7 +641,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
         # sample a batch of transitions
         states, actions, rewards, next_states, action_log_probs = self._sample_from_buffer()
-        
+
         # compute returns and advantages
         trajectory_length = rewards.shape[0]
         returns, advantages = self._compute_returns_advantages(rewards, states, next_states, trajectory_length)
