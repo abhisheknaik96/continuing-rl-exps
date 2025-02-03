@@ -642,11 +642,11 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         trajectory_length = rewards_all.shape[0]
         returns_all, advantages_all = self._compute_returns_advantages(rewards_all, states_all, next_states_all, trajectory_length)
 
-        # shuffle the indices for minibatch updates within the epochs
-        indices = random.sample(list(range(trajectory_length)), k=trajectory_length)
-        minibatch_indices = np.array_split(indices, trajectory_length // self.batch_size)
-
         for _ in range(self.num_epochs_per_update):
+
+            # shuffle the indices for minibatch updates within the epochs
+            indices = random.sample(list(range(trajectory_length)), k=trajectory_length)
+            minibatch_indices = np.array_split(indices, trajectory_length // self.batch_size)
 
             for idx in minibatch_indices:
                 states = states_all[idx]
