@@ -1,5 +1,6 @@
 """Implements the deep versions of the control agents."""
 
+import time
 import math
 import random
 import copy
@@ -410,7 +411,8 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
                         -self.timestep / self.exploration_decay_param)
         elif self.exploration_decay_type == 'linear':
             self.exploration_sigma -= (self.exploration_sigma_init - 
-                                       self.exploration_sigma_final) * self.param_update_freq / self.num_max_steps
+                                       self.exploration_sigma_final) * (self.param_update_freq 
+                                                                        / (self.num_max_steps - self.initial_exploration_only_steps))
         else:
             raise ValueError("exploration_decay_type needs to be 'exponential' or 'linear'")
 
@@ -525,7 +527,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.target_nets = False
         self.num_epochs_per_update = agent_args.get('num_epochs_per_update', 10)
         self.buffer_size = self.param_update_freq
-        self.buffer_sample_start_idx = 0
+        self.experience_buffer = deque(maxlen=self.buffer_size)
         assert self.batch_size <= self.param_update_freq and self.param_update_freq % self.batch_size == 0, \
             "param_update_freq should be a multiple of batch_size"
         self.obj_clip_epsilon = agent_args.get('obj_clip_epsilon', 0.2)
@@ -543,7 +545,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.timestep += 1
         observation = self._process_raw_observation(first_obs)
         action = self._choose_action(observation) 
-        return action
+        return action.cpu().numpy()
 
     def step(self, reward, next_state):
         """Updates the parameters and returns a new action."""
@@ -565,7 +567,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.timestep += 1
         
         action = self._choose_action(observation)
-        return torch.clip(action, -1, 1)
+        return torch.clip(action, -1, 1).cpu().numpy()
 
     def _add_to_buffer(self, experience):
         """Adds a single experience to the experience buffer."""
@@ -642,6 +644,8 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         trajectory_length = rewards_all.shape[0]
         returns_all, advantages_all = self._compute_returns_advantages(rewards_all, states_all, next_states_all, trajectory_length)
 
+        # start_time = time.time()
+
         for _ in range(self.num_epochs_per_update):
 
             # shuffle the indices for minibatch updates within the epochs
@@ -680,3 +684,6 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
                 self.actor_optimizer.zero_grad()
                 actor_loss.backward()
                 self.actor_optimizer.step()
+
+        # end_time = time.time()
+        # print(f'Time for a full update: {(end_time - start_time)*1000:.3f}ms')

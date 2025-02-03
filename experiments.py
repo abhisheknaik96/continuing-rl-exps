@@ -7,6 +7,7 @@ import zipfile
 import glob
 from tqdm import tqdm
 import numpy as np
+import torch
 import gym
 from utils import rendering
 import csuite
@@ -165,20 +166,18 @@ def run_experiment_one_config(config):
     store_max_action_values = config.get('store_max_action_values', False)
     bias = config.get('bias', False)
     eval_mode = config.get('eval_mode', False)
+    device = config.get('device', 'cpu')
+    torch.set_default_device(device)
 
     log = {'reward': np.zeros((num_runs, max_steps + 1), dtype=np.float32),
-           # 'action': np.zeros((num_runs, max_steps + 1), dtype=np.float32),
            'weights_final': np.zeros((num_runs, num_weights), dtype=np.float32),
            'avgrew_final': np.zeros(num_runs, dtype=np.float32),
-           'best_action_count': np.zeros(num_runs, dtype=np.int32)
            }
     if save_weights:
         log['avgrew'] = np.zeros((num_runs, max_steps // eval_every_n_steps + 1), dtype=np.float32)
         if not nonlinear:
             log['weights'] = np.zeros((num_runs, max_steps // eval_every_n_steps + 1,
                                        num_weights), dtype=np.float32)
-            # log['trace'] = np.zeros((num_runs, max_steps // eval_every_n_steps + 1,
-            #                            num_weights), dtype=np.float32)
     centered_values = []
     if exp_type == 'prediction':
         log['rmsve'] = np.zeros((num_runs, max_steps // eval_every_n_steps + 1), dtype=np.float32)
@@ -212,7 +211,6 @@ def run_experiment_one_config(config):
         viewer = None
         if render:
             viewer = rendering.VisualizationWindow()
-        goal_count = 0
 
         for t in range(max_steps + 1):
             if render:
@@ -240,21 +238,16 @@ def run_experiment_one_config(config):
                 next_obs = next_obs
             else:
                 reward, next_obs = env.step(action)
-                if reward == 100:
-                    goal_count += 1
             reward += reward_offset
             action = agent.step(reward, process_observation(env_name, next_obs))
             # logging the reward at each step
             log['reward'][run][t] = reward
-            # log['action'][run][t] = agent.past_action
-            # log['trace'][run][t] = agent.trace
-            if store_max_action_values and t > 9 * max_steps // 10:
-                log['max_value_per_step'][run][t - 9*(max_steps//10)] = agent.max_value_per_step
+            # if store_max_action_values and t > 9 * max_steps // 10:
+            #     log['max_value_per_step'][run][t - 9*(max_steps//10)] = agent.max_value_per_step
 
         if render:
             viewer.close()
 
-        print(f'Run {run + 1} completed. Goal count: {goal_count}')
         save_final_weights(nonlinear=nonlinear, eval_mode=eval_mode,
                            run_idx=run, log=log, env=env, agent=agent,
                            exp_name=exp_name, exp_id=config['exp_id'])

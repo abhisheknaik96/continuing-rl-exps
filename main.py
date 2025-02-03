@@ -8,6 +8,8 @@ from utils.sweeper import Sweeper
 from utils.helpers import validate_output_folder
 from experiments import run_experiment_one_config
 
+os.environ["CUBLAS_WORKSPACE_CONFIG"]=":4096:8"
+
 parser = argparse.ArgumentParser(description="Run an experiment based on parameters specified in a configuration file")
 parser.add_argument('--config-file',  # required=True,
                     default='config_files/puckworld_nonlinear/CPPO_1D.json',
