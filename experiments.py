@@ -113,6 +113,10 @@ def save_final_weights(nonlinear, run_idx, log, env, agent, exp_name, exp_id, ev
             log['avgrew_final'][run_idx] = agent.avg_reward
         if hasattr(env, "best_action_count"):
             log['best_action_count'][run_idx] = env.best_action_count
+        if hasattr(agent, "obs_mean"):
+            log['misc'][run_idx]['obs_mean'] = agent.obs_mean
+        if hasattr(agent, "obs_m2"):
+            log['misc'][run_idx]['obs_std'] = np.sqrt(agent.obs_m2 / agent.timestep)
 
 
 def clean_up(nonlinear, location, exp_name, exp_id, eval_mode):
@@ -172,6 +176,7 @@ def run_experiment_one_config(config):
     log = {'reward': np.zeros((num_runs, max_steps + 1), dtype=np.float32),
            'weights_final': np.zeros((num_runs, num_weights), dtype=np.float32),
            'avgrew_final': np.zeros(num_runs, dtype=np.float32),
+           'misc': [{} for i in range(num_runs)]
            }
     if save_weights:
         log['avgrew'] = np.zeros((num_runs, max_steps // eval_every_n_steps + 1), dtype=np.float32)
@@ -242,8 +247,6 @@ def run_experiment_one_config(config):
             action = agent.step(reward, process_observation(env_name, next_obs))
             # logging the reward at each step
             log['reward'][run][t] = reward
-            # if store_max_action_values and t > 9 * max_steps // 10:
-            #     log['max_value_per_step'][run][t - 9*(max_steps//10)] = agent.max_value_per_step
 
         if render:
             viewer.close()

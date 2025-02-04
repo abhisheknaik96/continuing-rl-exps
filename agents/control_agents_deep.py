@@ -9,7 +9,7 @@ import itertools
 import numpy as np
 import torch
 from torch.distributions import MultivariateNormal
-from utils.helpers import validate_output_folder
+from utils.helpers import validate_output_folder, load_obs_mean_and_std
 from utils.ou_noise import OU_Noise
 
 
@@ -83,6 +83,7 @@ class DeepBaseAgent:
         self.last_obs = None
         self.last_action = None
         self.max_value_per_step = None
+        self.eval_mode = agent_args.get('eval_mode', False)
 
     def _initialize_avgrew_step_size(self):
         """Initializes the step size for the average-reward parameter."""
@@ -129,19 +130,20 @@ class DeepBaseAgent:
         Returns:
             tensor of shape (1, flattened_size_of_obs)
         """
-        # update the running estimate of the mean
-        delta = obs - self.obs_mean
-        self.obs_mean += delta / self.timestep    
+        if not self.eval_mode:
+            # update the running estimate of the mean
+            delta = obs - self.obs_mean
+            self.obs_mean += delta / self.timestep    
 
-        # update the running estimate of the variance
-        delta_2 = obs - self.obs_mean
-        self.obs_m2 += delta * delta_2
-        obs_std = np.sqrt(self.obs_m2 / self.timestep)
+            # update the running estimate of the variance
+            delta_2 = obs - self.obs_mean
+            self.obs_m2 += delta * delta_2
+            self.obs_std = np.sqrt(self.obs_m2 / self.timestep)
 
         # compute the normalized observation
-        obs_normalized = (obs - self.obs_mean) / obs_std if self.timestep > 10 else obs
+        obs = (obs - self.obs_mean) / self.obs_std if self.timestep > 10 else obs
 
-        return torch.tensor(obs_normalized, dtype=torch.float, device=self.device).flatten().unsqueeze(0)
+        return torch.tensor(obs, dtype=torch.float, device=self.device).flatten().unsqueeze(0)
 
     def start(self, first_state):
         """Returns the first action corresponding to the first state."""
@@ -342,7 +344,7 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), final_activation_layer=torch.nn.Tanh()).to(self.device)
         self.load_model_from = agent_args.get('load_model_from', None)
         if self.load_model_from is not None:
-            self.actor.load_state_dict(torch.load(self.load_model_from))
+            self.actor.load_state_dict(torch.load(self.load_model_from, weights_only=True))
             print(f'Successfully loaded model from {self.load_model_from}')
 
         # initialize the critic network (and its target network)
@@ -361,6 +363,11 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         # initializing the parameters for normalizing observations
         self.obs_mean = np.zeros(self.actor_arch[0])
         self.obs_m2 = np.ones(self.actor_arch[0]) * 0.01
+        self.obs_std = np.zeros(self.actor_arch[0])
+        if self.eval_mode:
+            self.load_obs_mean_std_from = agent_args['load_obs_mean_std_from']
+            self.load_run_idx = agent_args['load_run_idx']
+            self.obs_mean, self.obs_std = load_obs_mean_and_std(self.load_obs_mean_std_from, self.load_run_idx)
 
         # initialize the loss functions and optimizers
         self.actor_optimizer_name = agent_args.get('actor_optimizer', 'None')
@@ -404,17 +411,14 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         """Update the exploration parameter."""
         if self.timestep < self.initial_exploration_only_steps:
             return
-        
-        if self.exploration_decay_type == 'exponential':
-            self.exploration_sigma = self.exploration_sigma_final + (
-                self.exploration_sigma_init - self.exploration_sigma_final) * math.e ** (
-                        -self.timestep / self.exploration_decay_param)
-        elif self.exploration_decay_type == 'linear':
+        if self.timestep > 0.9 * self.num_max_steps:
+            self.exploration_sigma = self.exploration_sigma_final
+        if self.exploration_decay_type == 'linear':
             self.exploration_sigma -= (self.exploration_sigma_init - 
                                        self.exploration_sigma_final) * (self.param_update_freq 
-                                                                        / (self.num_max_steps - self.initial_exploration_only_steps))
+                                                                        / (0.9*self.num_max_steps - self.initial_exploration_only_steps))
         else:
-            raise ValueError("exploration_decay_type needs to be 'exponential' or 'linear'")
+            raise ValueError("only 'linear' exploration_decay_type supported at the moment")
 
     def save_trained_model(self, filename_suffix='DDPG'):
         """Saves the trained model to a file."""
@@ -530,6 +534,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.experience_buffer = deque(maxlen=self.buffer_size)
         assert self.batch_size <= self.param_update_freq and self.param_update_freq % self.batch_size == 0, \
             "param_update_freq should be a multiple of batch_size"
+        self.normalize_advantage = agent_args.get('normalize_advantage', False)
         self.obj_clip_epsilon = agent_args.get('obj_clip_epsilon', 0.2)
         self.entropy_weight = agent_args.get('entropy_weight', 0.00)
 
@@ -597,6 +602,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         if noisy_actions is None:           # when requiring an action for a state
             with torch.no_grad():
                 actions = self.actor(states)
+                # print(states, actions)
         else:                               # when evaluating given actions
             actions = self.actor(states)
 
@@ -644,8 +650,10 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         trajectory_length = rewards_all.shape[0]
         returns_all, advantages_all = self._compute_returns_advantages(rewards_all, states_all, next_states_all, trajectory_length)
 
-        # start_time = time.time()
-
+        # normalize advantages
+        if self.normalize_advantage:
+            advantages_all = (advantages_all - advantages_all.mean()) / (advantages_all.std() + 1e-5)
+        
         for _ in range(self.num_epochs_per_update):
 
             # shuffle the indices for minibatch updates within the epochs
@@ -684,6 +692,3 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
                 self.actor_optimizer.zero_grad()
                 actor_loss.backward()
                 self.actor_optimizer.step()
-
-        # end_time = time.time()
-        # print(f'Time for a full update: {(end_time - start_time)*1000:.3f}ms')
