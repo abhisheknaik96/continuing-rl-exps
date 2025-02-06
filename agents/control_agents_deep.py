@@ -13,12 +13,15 @@ from utils.helpers import validate_output_folder, load_obs_mean_and_std
 from utils.ou_noise import OU_Noise
 
 
-def build_fc_net(layer_sizes, activation=torch.nn.Tanh(), final_activation_layer=torch.nn.Identity()):
+def build_fc_net(layer_sizes, activation=torch.nn.Tanh(), final_activation_layer=torch.nn.Identity(), ortho_init=False):
     """Returns a full-connected network with an argument-specified activation function."""
     assert len(layer_sizes) > 1
     layers = []
     for index in range(len(layer_sizes) - 1):
         linear = torch.nn.Linear(layer_sizes[index], layer_sizes[index + 1])
+        if ortho_init:
+            torch.nn.init.orthogonal_(linear.weight, 1)
+            torch.nn.init.constant_(linear.bias, 0)
         act = activation if index < len(layer_sizes) - 2 else final_activation_layer
         layers += (linear, act)
     return torch.nn.Sequential(*layers)
@@ -341,7 +344,9 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         assert 'actor_arch' in agent_args, "actor_arch needs to be specified in agent_args"
         self.actor_arch = agent_args['actor_arch']
         self.num_actions = self.actor_arch[-1]
-        self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), final_activation_layer=torch.nn.Tanh()).to(self.device)
+        self.ortho_init = agent_args.get('orthogonal_initialization', False)
+        self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), final_activation_layer=torch.nn.Tanh(), 
+                                  ortho_init=self.ortho_init).to(self.device)
         self.load_model_from = agent_args.get('load_model_from', None)
         if self.load_model_from is not None:
             self.actor.load_state_dict(torch.load(self.load_model_from, weights_only=True))
@@ -351,7 +356,7 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         assert 'critic_arch' in agent_args, "critic_arch needs to be specified in agent_args"
         self.critic_arch = agent_args['critic_arch']
         assert self.critic_arch[-1] == 1, "the output of the critic network should be a single value"
-        self.critic = build_fc_net(self.critic_arch, activation=torch.nn.ReLU()).to(self.device)
+        self.critic = build_fc_net(self.critic_arch, activation=torch.nn.ReLU(), ortho_init=self.ortho_init).to(self.device)
 
         # initialize the target networks, if any
         self.target_nets = agent_args.get('target_nets', True)
