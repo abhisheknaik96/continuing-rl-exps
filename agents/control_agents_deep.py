@@ -529,7 +529,7 @@ class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
 
 class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
-    """Implements the PPO algorithm with reward centering."""
+    """Implements the PPO algorithm."""
 
     def __init__(self, **agent_args):
         super().__init__(**agent_args)
@@ -693,6 +693,70 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
                 actor_objective_cpi_term2 = torch.clip(ratios, 1 - self.obj_clip_epsilon, 1 + self.obj_clip_epsilon) * advantages
                 actor_objective_cpi = -torch.min(actor_objective_cpi_term1, actor_objective_cpi_term2).mean()
                 actor_loss = actor_objective_cpi - self.entropy_weight * entropy_latest.mean()      # maximize entropy
+
+                self.actor_optimizer.zero_grad()
+                actor_loss.backward()
+                self.actor_optimizer.step()
+
+
+class MDPOAgent(PPOAgent):
+    """Implements Tomar et al.'s (2021) MDPO algorithm."""
+
+    def __init__(self, **agent_args):
+        super().__init__(**agent_args)
+        self.kl_coeff = 1
+
+    def _update_kl_coeff(self):
+        """Updates the extent to which the KL term will be used in the loss."""
+        self.kl_coeff = 1 - self.timestep / self.num_max_steps
+
+    def _update_params(self):
+        """Updates the actor and critic parameters of the agent."""
+        
+        if self.timestep < self.initial_exploration_only_steps:
+            return
+
+        # sample a batch of transitions
+        states_all, actions_all, rewards_all, next_states_all, action_log_probs_all = self._sample_from_buffer()
+
+        # compute returns and advantages
+        trajectory_length = rewards_all.shape[0]
+        returns_all, advantages_all = self._compute_returns_advantages(rewards_all, states_all, next_states_all, trajectory_length)
+
+        # normalize advantages
+        if self.normalize_advantage:
+            advantages_all = (advantages_all - advantages_all.mean()) / (advantages_all.std() + 1e-5)
+        
+        # update the factor with which the KL term is used in the loss
+        self._update_kl_coeff()
+
+        for _ in range(self.num_epochs_per_update):
+
+            # shuffle the indices for minibatch updates within the epochs
+            indices = random.sample(list(range(trajectory_length)), k=trajectory_length)
+            minibatch_indices = np.array_split(indices, trajectory_length // self.batch_size)
+
+            for idx in minibatch_indices:
+                states = states_all[idx]
+                actions = actions_all[idx]
+                returns = returns_all[idx]
+                action_log_probs = action_log_probs_all[idx]
+                advantages = advantages_all[idx]
+
+                ### first, update the critic parameters
+                v_current = self.critic(states)
+                critic_loss = self.critic_loss_fn(v_current, returns)
+                self.critic_optimizer.zero_grad()
+                critic_loss.backward()
+                self.critic_optimizer.step()
+
+                ### now, update the actor parameters
+                _, action_log_probs_latest, _ = self._evaluate_policy(states, actions)
+                log_ratios = action_log_probs_latest - action_log_probs
+                ratios = torch.exp(log_ratios)
+                actor_objective_cpi = ratios * advantages
+                actor_objective_kl = ratios * log_ratios - (ratios - 1)
+                actor_loss = actor_objective_cpi.mean() - self.kl_coeff * actor_objective_kl.mean()
 
                 self.actor_optimizer.zero_grad()
                 actor_loss.backward()

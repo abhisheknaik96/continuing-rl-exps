@@ -12,7 +12,7 @@ os.environ["CUBLAS_WORKSPACE_CONFIG"]=":4096:8"
 
 parser = argparse.ArgumentParser(description="Run an experiment based on parameters specified in a configuration file")
 parser.add_argument('--config-file',  # required=True,
-                    default='config_files/puckworld_nonlinear/CPPO_1D.json',
+                    default='config_files/puckworld_nonlinear/CMDPO_1D.json',
                     help='location of the config file for the experiment (e.g., config_files/test_config.json)')
 parser.add_argument('--cfg-start', default=0)
 parser.add_argument('--cfg-end', default=-1)

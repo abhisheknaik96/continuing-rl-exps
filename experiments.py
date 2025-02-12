@@ -47,7 +47,8 @@ agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'CDQN': 'CDQNAgent',
              'CDSarsaN': 'CDSNAgent',
              'CD_DDPG': 'DDPGAgent',
-             'CD_PPO': 'PPOAgent'}
+             'CD_PPO': 'PPOAgent',
+             'CD_MDPO': 'MDPOAgent',}
 
 
 def process_observation(env_name, raw_obs):
