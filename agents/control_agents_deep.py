@@ -1,21 +1,27 @@
 """Implements the deep versions of the control agents."""
 
+import time
 import math
 import random
 import copy
 from collections import deque
+import itertools
 import numpy as np
 import torch
-from utils.helpers import validate_output_folder
+from torch.distributions import MultivariateNormal
+from utils.helpers import validate_output_folder, load_obs_mean_and_std
 from utils.ou_noise import OU_Noise
 
 
-def build_fc_net(layer_sizes, activation=torch.nn.Tanh(), final_activation_layer=torch.nn.Identity()):
+def build_fc_net(layer_sizes, activation=torch.nn.Tanh(), final_activation_layer=torch.nn.Identity(), ortho_init=False):
     """Returns a full-connected network with an argument-specified activation function."""
     assert len(layer_sizes) > 1
     layers = []
     for index in range(len(layer_sizes) - 1):
         linear = torch.nn.Linear(layer_sizes[index], layer_sizes[index + 1])
+        if ortho_init:
+            torch.nn.init.orthogonal_(linear.weight, 1)
+            torch.nn.init.constant_(linear.bias, 0)
         act = activation if index < len(layer_sizes) - 2 else final_activation_layer
         layers += (linear, act)
     return torch.nn.Sequential(*layers)
@@ -80,6 +86,7 @@ class DeepBaseAgent:
         self.last_obs = None
         self.last_action = None
         self.max_value_per_step = None
+        self.eval_mode = agent_args.get('eval_mode', False)
 
     def _initialize_avgrew_step_size(self):
         """Initializes the step size for the average-reward parameter."""
@@ -101,10 +108,13 @@ class DeepBaseAgent:
         r = torch.tensor([[r]], device=self.device).float()
         self.experience_buffer.append([s, a, r, sn])
 
-    def _sample_from_buffer(self):
+    def _sample_from_buffer(self, in_order=False):
         """Samples a batch of experiences from the experience buffer."""
         num_samples = min(self.batch_size, len(self.experience_buffer))
-        sample = random.sample(self.experience_buffer, num_samples)
+        if not in_order:
+            sample = random.sample(self.experience_buffer, num_samples)
+        else:
+            raise NotImplementedError
         s, a, r, sn = zip(*sample)
         states = torch.cat(s, dim=0)
         actions = torch.cat(a, dim=0)
@@ -114,16 +124,33 @@ class DeepBaseAgent:
         return states, actions, rewards, next_states
 
     def _process_raw_observation(self, obs: np.ndarray):
-        """Takes an ndarray, flattens it, and returns it in a batch form.
+        """
+        Takes an ndarray, normalizes it (using Welford's online algorithm), 
+        flattens it, and returns it in a batch form.
+
         Args:
             obs: ndarray of arbitrary size
         Returns:
             tensor of shape (1, flattened_size_of_obs)
         """
+        if not self.eval_mode:
+            # update the running estimate of the mean
+            delta = obs - self.obs_mean
+            self.obs_mean += delta / self.timestep    
+
+            # update the running estimate of the variance
+            delta_2 = obs - self.obs_mean
+            self.obs_m2 += delta * delta_2
+            self.obs_std = np.sqrt(self.obs_m2 / self.timestep)
+
+        # compute the normalized observation
+        obs = (obs - self.obs_mean) / self.obs_std if self.timestep > 10 else obs
+
         return torch.tensor(obs, dtype=torch.float, device=self.device).flatten().unsqueeze(0)
 
     def start(self, first_state):
         """Returns the first action corresponding to the first state."""
+        self.timestep += 1
         observation = self._process_raw_observation(first_state)
         action = self._choose_action(observation)
         self.last_obs = observation
@@ -238,8 +265,7 @@ class DeepCenteredDiscountedValueBasedAgent(DeepBaseAgent):
         states, actions, rewards, next_states = self._sample_from_buffer()
 
         # predict expected return of current state using main network
-        qs = self.q_net(states)
-        pred_return = qs.gather(1, actions)
+        pred_return = self.q_net(states)
 
         # get target return using target network
         next_actions = None
@@ -318,21 +344,35 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         assert 'actor_arch' in agent_args, "actor_arch needs to be specified in agent_args"
         self.actor_arch = agent_args['actor_arch']
         self.num_actions = self.actor_arch[-1]
-        self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), final_activation_layer=torch.nn.Tanh()).to(self.device)
-        self.actor_target = copy.deepcopy(self.actor).to(self.device)
+        self.ortho_init = agent_args.get('orthogonal_initialization', False)
+        self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), final_activation_layer=torch.nn.Tanh(), 
+                                  ortho_init=self.ortho_init).to(self.device)
         self.load_model_from = agent_args.get('load_model_from', None)
         if self.load_model_from is not None:
-            self.actor.load_state_dict(torch.load(self.load_model_from))
+            self.actor.load_state_dict(torch.load(self.load_model_from, weights_only=True))
             print(f'Successfully loaded model from {self.load_model_from}')
 
         # initialize the critic network (and its target network)
         assert 'critic_arch' in agent_args, "critic_arch needs to be specified in agent_args"
         self.critic_arch = agent_args['critic_arch']
-        assert self.critic_arch[0] == self.actor_arch[0] + self.actor_arch[-1], "the input of the critic network should be the concatenation of the state features and actions"
         assert self.critic_arch[-1] == 1, "the output of the critic network should be a single value"
-        self.critic = build_fc_net(self.critic_arch, activation=torch.nn.ReLU()).to(self.device)
-        self.critic_target = copy.deepcopy(self.critic).to(self.device)
-        self.tau = agent_args.get('tau', 0.995) # parameter for target networks' soft updates
+        self.critic = build_fc_net(self.critic_arch, activation=torch.nn.ReLU(), ortho_init=self.ortho_init).to(self.device)
+
+        # initialize the target networks, if any
+        self.target_nets = agent_args.get('target_nets', True)
+        if self.target_nets:
+            self.actor_target = copy.deepcopy(self.actor).to(self.device)
+            self.critic_target = copy.deepcopy(self.critic).to(self.device)
+            self.tau = agent_args.get('tau', 0.995) # parameter for target networks' soft updates
+
+        # initializing the parameters for normalizing observations
+        self.obs_mean = np.zeros(self.actor_arch[0])
+        self.obs_m2 = np.ones(self.actor_arch[0]) * 0.01
+        self.obs_std = np.zeros(self.actor_arch[0])
+        if self.eval_mode:
+            self.load_obs_mean_std_from = agent_args['load_obs_mean_std_from']
+            self.load_run_idx = agent_args['load_run_idx']
+            self.obs_mean, self.obs_std = load_obs_mean_and_std(self.load_obs_mean_std_from, self.load_run_idx)
 
         # initialize the loss functions and optimizers
         self.actor_optimizer_name = agent_args.get('actor_optimizer', 'None')
@@ -352,9 +392,6 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         self.exploration_sigma = self.exploration_sigma_init
         assert "num_max_steps" in agent_args, "num_max_steps needs to be specified in agent_args"
         self.num_max_steps = agent_args['num_max_steps']
-        self.use_ou_noise = agent_args.get('use_ou_noise', False)
-        if self.use_ou_noise:
-            self.ou_noise = OU_Noise(size=(1, self.num_actions), seed=self.seed)
 
     def _initialize_optimizer(self, network, optimizer_name, step_size):
         if optimizer_name == 'SGD':
@@ -366,7 +403,64 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         else:
             raise ValueError("optimizer needs to be SGD, Adam, or RMSprop")
         return optimizer
-        
+    
+    def _update_target_net(self):
+        "Update the target networks with 'soft' updates."
+        if self.target_nets and (self.timestep % self.net_sync_freq == 0):
+            for main_net, target_net in [(self.actor, self.actor_target), (self.critic, self.critic_target)]:
+                for main, target in zip(main_net.parameters(), target_net.parameters()):
+                    target.data.mul_(self.tau)          # these are in-place operations
+                    target.data.add_((1-self.tau) * main.data)
+
+    def _update_exploration_parameters(self):
+        """Update the exploration parameter."""
+        if self.timestep < self.initial_exploration_only_steps:
+            return
+        if self.timestep > 0.9 * self.num_max_steps:
+            self.exploration_sigma = self.exploration_sigma_final
+        if self.exploration_decay_type == 'linear':
+            self.exploration_sigma -= (self.exploration_sigma_init - 
+                                       self.exploration_sigma_final) * (self.param_update_freq 
+                                                                        / (0.9*self.num_max_steps - self.initial_exploration_only_steps))
+        else:
+            raise ValueError("only 'linear' exploration_decay_type supported at the moment")
+
+    def save_trained_model(self, filename_suffix='DDPG'):
+        """Saves the trained model to a file."""
+        actor_filename = self.save_model_loc + filename_suffix + '_actor.pth'
+        critic_filename = self.save_model_loc + filename_suffix + '_critic.pth'
+        torch.save(self.actor.state_dict(), actor_filename)
+        torch.save(self.critic.state_dict(), critic_filename)
+
+    def start(self, first_state):
+        action_tensor = super().start(first_state)
+        return action_tensor[0].numpy()    # return the action array instead of the 2D tensor containing the single action array
+
+    def step(self, reward, next_state):
+        action_tensor = super().step(reward, next_state)
+        return action_tensor[0].numpy()    # return the action array instead of the 2D tensor containing the single action array
+
+    def _choose_action(self, states):
+        """Takes a batch of states and returns the action for each."""
+        raise NotImplementedError
+
+    def _update_params(self):
+        """Updates the actor and critic parameters of the agent."""
+        raise NotImplementedError
+
+
+class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
+    """Implements the DDPG algorithm with reward centering."""
+
+    def __init__(self, **agent_args):
+        super().__init__(**agent_args)
+        assert self.critic_arch[0] == self.actor_arch[0] + self.actor_arch[-1], \
+            "the input to the action-value critic network should be the concatenation of the state features and actions"
+        self.target_nets = True
+        self.use_ou_noise = agent_args.get('use_ou_noise', False)
+        if self.use_ou_noise:
+            self.ou_noise = OU_Noise(size=(1, self.num_actions), seed=self.seed)
+
     def _choose_action(self, states):
         """Takes a batch of states and returns the action for each."""
         if self.timestep < self.initial_exploration_only_steps:
@@ -432,39 +526,174 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         # enable the gradient computation for the critic parameters for the next call to _update_params()
         for p in self.critic.parameters():
             p.requires_grad = True
-    
-    def _update_target_net(self):
-        "Update the target networks with 'soft' updates."
-        if self.timestep % self.net_sync_freq == 0:
-            for main_net, target_net in [(self.actor, self.actor_target), (self.critic, self.critic_target)]:
-                for main, target in zip(main_net.parameters(), target_net.parameters()):
-                    target.data.mul_(self.tau)          # these are in-place operations
-                    target.data.add_((1-self.tau) * main.data)
 
-    def _update_exploration_parameters(self):
-        """Update the exploration parameter."""
-        if self.exploration_decay_type == 'exponential':
-            self.exploration_sigma = self.exploration_sigma_final + (
-                self.exploration_sigma_init - self.exploration_sigma_final) * math.e ** (
-                        -self.timestep / self.exploration_decay_param)
-        elif self.exploration_decay_type == 'linear':
-            self.exploration_sigma -= (self.exploration_sigma_init - self.exploration_sigma_final) / self.num_max_steps
-            # self.exploration_sigma = self.exploration_sigma_init - (
-            #     self.exploration_sigma_init - self.exploration_sigma_final) * self.timestep / self.num_max_steps
-        else:
-            raise ValueError("exploration_decay_type needs to be 'exponential' or 'linear'")
 
-    def save_trained_model(self, filename_suffix='DDPG'):
-        """Saves the trained model to a file."""
-        actor_filename = self.save_model_loc + filename_suffix + '_actor.pth'
-        critic_filename = self.save_model_loc + filename_suffix + '_critic.pth'
-        torch.save(self.actor.state_dict(), actor_filename)
-        torch.save(self.critic.state_dict(), critic_filename)
+class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
+    """Implements the PPO algorithm with reward centering."""
 
-    def start(self, first_state):
-        action_tensor = super().start(first_state)
-        return action_tensor[0].numpy()    # return the action array instead of the 2D tensor containing the single action array
+    def __init__(self, **agent_args):
+        super().__init__(**agent_args)
+        self.target_nets = False
+        self.num_epochs_per_update = agent_args.get('num_epochs_per_update', 10)
+        self.buffer_size = self.param_update_freq
+        self.experience_buffer = deque(maxlen=self.buffer_size)
+        assert self.batch_size <= self.param_update_freq and self.param_update_freq % self.batch_size == 0, \
+            "param_update_freq should be a multiple of batch_size"
+        self.normalize_advantage = agent_args.get('normalize_advantage', False)
+        self.obj_clip_epsilon = agent_args.get('obj_clip_epsilon', 0.2)
+        self.entropy_weight = agent_args.get('entropy_weight', 0.00)
+
+    def _choose_action(self, observation):
+        action, action_log_prob, _ = self._evaluate_policy(observation)
+        self.last_obs = observation
+        self.last_action = action
+        self.last_action_log_prob = action_log_prob
+        return action
+
+    def start(self, first_obs):
+        """Returns the first action corresponding to the first state."""
+        self.timestep += 1
+        observation = self._process_raw_observation(first_obs)
+        action = self._choose_action(observation) 
+        return action.cpu().numpy()
 
     def step(self, reward, next_state):
-        action_tensor = super().step(reward, next_state)
-        return action_tensor[0].numpy()    # return the action array instead of the 2D tensor containing the single action array
+        """Updates the parameters and returns a new action."""
+
+        observation = self._process_raw_observation(next_state)
+        # print(f"{self.timestep}: ", self.last_obs, self.last_action, reward, observation, self.last_action_log_prob)
+        self._add_to_buffer([self.last_obs, self.last_action, reward, observation, self.last_action_log_prob])
+
+        # if time to update parameters
+        if self.timestep % self.param_update_freq == 0:
+            # update the target networks, if any
+            self._update_target_net()
+            # update the learnable parameters
+            self._update_params()
+            # update the step size(s)
+            self._update_step_size()
+            # update the exploration parameters
+            self._update_exploration_parameters()
+        self.timestep += 1
+        
+        action = self._choose_action(observation)
+        return torch.clip(action, -1, 1).cpu().numpy()
+
+    def _add_to_buffer(self, experience):
+        """Adds a single experience to the experience buffer."""
+        s, a, r, sn, action_log_prob = experience
+        r = torch.tensor([[r]], device=self.device).float()
+        # action_log_prob = torch.tensor([action_log_prob], device=self.device).float()
+        self.experience_buffer.append([s, a, r, sn, action_log_prob])
+
+    def _sample_from_buffer(self):
+        """Samples a batch of experiences from the experience buffer."""
+        sample = copy.copy(self.experience_buffer)
+
+        s, a, r, sn, a_log_prob = zip(*sample)
+        states = torch.cat(s, dim=0)
+        actions = torch.cat(a, dim=0)
+        rewards = torch.cat(r, dim=0)
+        next_states = torch.cat(sn, dim=0)
+        action_log_probs = torch.cat(a_log_prob, dim=0)
+
+        return states, actions, rewards, next_states, action_log_probs
+
+    def _evaluate_policy(self, states, noisy_actions=None):
+        """
+        Takes a batch of states and returns the action and its log_probability for each,
+        along with the policy's entropy.
+        """
+        if noisy_actions is None:           # when requiring an action for a state
+            with torch.no_grad():
+                actions = self.actor(states)
+                # print(states, actions)
+        else:                               # when evaluating given actions
+            actions = self.actor(states)
+
+        exploration_covariance_matrix = torch.eye(self.num_actions).unsqueeze(0) * self.exploration_sigma        # ToDo: can avoid recreating this each time
+        action_distribution = MultivariateNormal(actions, exploration_covariance_matrix.repeat(actions.shape[0], 1, 1))
+
+        if noisy_actions is None:
+            noisy_actions = action_distribution.sample()
+        action_log_probability = action_distribution.log_prob(noisy_actions)
+        entropy = action_distribution.entropy()
+        
+        # noisy_actions = torch.clip(noisy_actions, -1, 1)
+
+        return noisy_actions.to(dtype=torch.float32), action_log_probability.unsqueeze(1), entropy
+
+    def _compute_returns_advantages(self, rewards, states, next_states, trajectory_length):
+        returns = torch.zeros((trajectory_length))
+        advantages = torch.zeros((trajectory_length))
+
+        with torch.no_grad():
+            v_current = self.critic(states)
+            v_next = self.critic(next_states)
+
+        # initialize
+        returns[-1] = rewards[-1] + self.gamma * v_next[-1]
+        advantages[-1] = returns[-1] - v_current[-1]
+        # compute for every other index (from the last to first)
+        for i in range(0, trajectory_length-1)[::-1]:
+            returns[i] = rewards[i] + self.gamma * returns[i+1] 
+            td_error = rewards[i] + self.gamma * v_current[i+1] - v_current[i]
+            advantages[i] = td_error + self.gamma * advantages[i+1]   # ToDo: a lambda goes here to implement GAE
+        
+        return returns.unsqueeze(1), advantages.unsqueeze(1)
+
+    def _update_params(self):
+        """Updates the actor and critic parameters of the agent."""
+        
+        if self.timestep < self.initial_exploration_only_steps:
+            return
+
+        # sample a batch of transitions
+        states_all, actions_all, rewards_all, next_states_all, action_log_probs_all = self._sample_from_buffer()
+
+        # compute returns and advantages
+        trajectory_length = rewards_all.shape[0]
+        returns_all, advantages_all = self._compute_returns_advantages(rewards_all, states_all, next_states_all, trajectory_length)
+
+        # normalize advantages
+        if self.normalize_advantage:
+            advantages_all = (advantages_all - advantages_all.mean()) / (advantages_all.std() + 1e-5)
+        
+        for _ in range(self.num_epochs_per_update):
+
+            # shuffle the indices for minibatch updates within the epochs
+            indices = random.sample(list(range(trajectory_length)), k=trajectory_length)
+            minibatch_indices = np.array_split(indices, trajectory_length // self.batch_size)
+
+            for idx in minibatch_indices:
+                states = states_all[idx]
+                actions = actions_all[idx]
+                returns = returns_all[idx]
+                action_log_probs = action_log_probs_all[idx]
+                advantages = advantages_all[idx]
+
+                ### first, update the critic parameters
+
+                # update the average-reward parameter
+                v_current = self.critic(states)
+                # old_avg_reward = self.avg_reward
+                # self.avg_reward += self.beta * torch.mean(returns - v_current)
+                # returns += (old_avg_reward - self.avg_reward) * trajectory_length       # ToDo: this is incorrect
+
+                # update the critic-network parameters
+                critic_loss = self.critic_loss_fn(v_current, returns)
+                self.critic_optimizer.zero_grad()
+                critic_loss.backward()
+                self.critic_optimizer.step()
+
+                ### now, update the actor parameters
+                _, action_log_probs_latest, entropy_latest = self._evaluate_policy(states, actions)
+                ratios = torch.exp(action_log_probs_latest - action_log_probs)
+                actor_objective_cpi_term1 = ratios * advantages
+                actor_objective_cpi_term2 = torch.clip(ratios, 1 - self.obj_clip_epsilon, 1 + self.obj_clip_epsilon) * advantages
+                actor_objective_cpi = -torch.min(actor_objective_cpi_term1, actor_objective_cpi_term2).mean()
+                actor_loss = actor_objective_cpi - self.entropy_weight * entropy_latest.mean()      # maximize entropy
+
+                self.actor_optimizer.zero_grad()
+                actor_loss.backward()
+                self.actor_optimizer.step()

@@ -13,6 +13,13 @@ def validate_output_folder(path):
     return path
 
 
+def load_obs_mean_and_std(filename, run_idx):
+    data = np.load(filename, allow_pickle=True).item()
+    obs_mean = data['misc'][run_idx]['obs_mean']
+    obs_std = data['misc'][run_idx]['obs_std']
+    return obs_mean, obs_std
+
+
 def get_weights_from_npy(filename, seed_idx=-1):
     """
     Returns the weights from an npy file storing [runs, weights].
