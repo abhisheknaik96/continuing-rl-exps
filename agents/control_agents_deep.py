@@ -756,7 +756,7 @@ class MDPOAgent(PPOAgent):
                 ratios = torch.exp(log_ratios)
                 actor_objective_cpi = ratios * advantages
                 actor_objective_kl = ratios * log_ratios - (ratios - 1)
-                actor_loss = actor_objective_cpi.mean() - self.kl_coeff * actor_objective_kl.mean()
+                actor_loss = -(actor_objective_cpi.mean() - self.kl_coeff * actor_objective_kl.mean())
 
                 self.actor_optimizer.zero_grad()
                 actor_loss.backward()
