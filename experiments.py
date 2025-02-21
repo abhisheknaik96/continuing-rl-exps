@@ -8,7 +8,7 @@ import glob
 from tqdm import tqdm
 import numpy as np
 import torch
-import gym
+import gymnasium as gym
 from utils import rendering
 import csuite
 from utils import helpers
@@ -34,7 +34,8 @@ env_map = {'RandomWalkN': 'RandomWalkN',
         #    'MCC': 'MountainCarContinuous-v0',
             'pendulum_continuous': 'pendulum_continuous',
             'puckworld_continuous': 'puckworld_continuous',
-            'puckworld_continuous_1d': 'puckworld_continuous_1d' 
+            'puckworld_continuous_1d': 'puckworld_continuous_1d',
+            'reacher': 'Reacher-v5' 
            }
 agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'ATDl': 'AverageCostTDlambdaAgent',
@@ -238,7 +239,7 @@ def run_experiment_one_config(config):
                 action = np.append(action, 0)
                 next_obs, reward = env.step(action)
             elif env_type == 'gym':
-                next_obs, reward, terminated, _, _ = env.step(action)
+                next_obs, reward, terminated, _, _ = env.step(action[0])
                 if terminated:
                     next_obs = env.reset()[0]
                 next_obs = next_obs

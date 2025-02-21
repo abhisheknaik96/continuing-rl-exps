@@ -4,8 +4,8 @@ from typing import Optional, SupportsFloat, Tuple
 import numpy as np
 from numpy import cos, pi, sin
 
-from gym import core, logger, spaces
-from gym.error import DependencyNotInstalled
+from gymnasium import core, logger, spaces
+from gymnasium.error import DependencyNotInstalled
 
 __copyright__ = "Copyright 2013, RLPy http://acl.mit.edu/RLPy"
 __credits__ = [
