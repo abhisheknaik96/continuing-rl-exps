@@ -35,7 +35,8 @@ env_map = {'RandomWalkN': 'RandomWalkN',
             'pendulum_continuous': 'pendulum_continuous',
             'puckworld_continuous': 'puckworld_continuous',
             'puckworld_continuous_1d': 'puckworld_continuous_1d',
-            'reacher': 'Reacher-v5' 
+            'reacher': 'Reacher-v5', 
+            'swimmer': 'Swimmer-v5-continuing'
            }
 agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'ATDl': 'AverageCostTDlambdaAgent',
@@ -194,6 +195,7 @@ def run_experiment_one_config(config):
         if store_max_action_values:
             log['max_value_per_step'] = np.zeros((num_runs, max_steps // 10 + 1), dtype=np.float32)
 
+    helpers.register_continuing_mujoco_environments()
     assert env_name in env_map, f'{env_name} not found.'
     assert agent_name in agent_map, f'{agent_name} not found.'
 

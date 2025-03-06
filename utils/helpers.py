@@ -91,3 +91,40 @@ def compute_rmsve(features, weights, targets, weighting, remove_offset=False, bi
 def compute_rre(reward_rate_estimate, true_reward_rate):
     """Computes and returns the reward-rate error (RRE)."""
     return abs(reward_rate_estimate - true_reward_rate)
+
+
+def register_continuing_mujoco_environments():
+
+    from gymnasium.envs.registration import register
+
+    register(id="Ant-v5-continuing",
+             entry_point="gymnasium.envs.mujoco.ant_v5:AntEnv",
+             max_episode_steps=10000000)
+
+    # register(id="Hopper-v5-continuing",
+    #          entry_point="gymnasium.envs.mujoco.hopper_v5:HopperEnv",
+    #          max_episode_steps=10000000)
+
+    register(id="Humanoid-v5-continuing",
+             entry_point="gymnasium.envs.mujoco.humanoid_v5:HumanoidEnv",
+             max_episode_steps=10000000)
+
+    register(id="HalfCheetah-v5-continuing",
+             entry_point="gymnasium.envs.mujoco.half_cheetah_v5:HalfCheetahEnv",
+             max_episode_steps=10000000)
+
+    register(id="Reacher-v5-continuing",
+             entry_point="gymnasium.envs.mujoco.reacher_v5:ReacherEnv",
+             max_episode_steps=10000000)
+
+    register(id="Pusher-v5-continuing",
+             entry_point="gymnasium.envs.mujoco.pusher_v5:PusherEnv",
+             max_episode_steps=10000000)
+
+    # register(id="Walker2d-v5-continuing",
+    #          entry_point="gymnasium.envs.mujoco.walker2d_v5:Walker2dEnv",
+    #          max_episode_steps=10000000)
+
+    register(id="Swimmer-v5-continuing",
+             entry_point="gymnasium.envs.mujoco.swimmer_v5:SwimmerEnv",
+             max_episode_steps=10000000)
