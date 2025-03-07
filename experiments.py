@@ -29,14 +29,15 @@ env_map = {'RandomWalkN': 'RandomWalkN',
            'RW': 'RandomWalkN',
            'bandit': 'MultiArmedBandit',
            'RiverSwim': 'RiverSwim',
-           'AO': 'gym_AO',
+           'AO': 'AO-v0',
            'MCC': 'Continuous_MountainCarEnv',
         #    'MCC': 'MountainCarContinuous-v0',
             'pendulum_continuous': 'pendulum_continuous',
             'puckworld_continuous': 'puckworld_continuous',
             'puckworld_continuous_1d': 'puckworld_continuous_1d',
             'reacher': 'Reacher-v5', 
-            'swimmer': 'Swimmer-v5-continuing'
+            'swimmer': 'Swimmer-v5-continuing',
+            'half_cheetah': 'HalfCheetah-v5-continuing',
            }
 agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'ATDl': 'AverageCostTDlambdaAgent',
@@ -210,8 +211,8 @@ def run_experiment_one_config(config):
             env = csuite.load(env_map[env_name], settings)
             obs = env.start(seed=config['rng_seed'])
         elif env_type == 'gym':
-            render_mode = 'human' if render else None
-            env = gym.make(env_map[env_name], render_mode=render_mode)
+            # render_mode = 'human' if render else None
+            env = gym.make(env_map[env_name])
             obs = env.reset()[0]
         else:
             env = getattr(sys.modules[__name__], env_map[env_name])(**config)

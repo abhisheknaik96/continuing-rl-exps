@@ -128,3 +128,5 @@ def register_continuing_mujoco_environments():
     register(id="Swimmer-v5-continuing",
              entry_point="gymnasium.envs.mujoco.swimmer_v5:SwimmerEnv",
              max_episode_steps=10000000)
+
+    register(id="AO-v0", entry_point='environments.adaptive_optics:AOEnv')
