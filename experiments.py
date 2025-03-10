@@ -37,7 +37,7 @@ env_map = {'RandomWalkN': 'RandomWalkN',
             'puckworld_continuous_1d': 'puckworld_continuous_1d',
             'reacher': 'Reacher-v5', 
             'swimmer': 'Swimmer-v5-continuing',
-            'half_cheetah': 'HalfCheetah-v5-continuing',
+            'half_cheetah': 'half_cheetah',
            }
 agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'ATDl': 'AverageCostTDlambdaAgent',

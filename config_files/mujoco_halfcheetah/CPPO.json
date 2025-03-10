@@ -1,7 +1,7 @@
 {
     "exp_name": "halfcheetah_cont_DiscPPO",
     "env_name": "half_cheetah",
-    "env_type": "gym",
+    "env_type": "csuite",
     "agent_name": "CD_PPO",
     "nonlinear": true,
     "exp_type": "control",
