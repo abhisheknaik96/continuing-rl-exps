@@ -39,6 +39,7 @@ env_map = {'RandomWalkN': 'RandomWalkN',
             'mujoco_swimmer': 'Swimmer-v5-continuing',
             'mujoco_half_cheetah': 'half_cheetah',
             'mujoco_ant': 'ant',
+            'mujoco_humanoid': 'humanoid',
            }
 agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'ATDl': 'AverageCostTDlambdaAgent',
