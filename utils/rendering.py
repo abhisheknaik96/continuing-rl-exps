@@ -33,22 +33,22 @@ class VisualizationWindow:
         self.screen.blit(convert_array_to_surface(rgb_array), (0, 0))
         pygame.display.update()
 
-    def close():
+    def close(self):
         pygame.quit()
 
 
 def test():
 
-    # env = csuite.load('pendulum')
-    env = csuite.load('half_cheetah')
+    env = csuite.load('pendulum')
+    # env = csuite.load('half_cheetah')
     obs = env.start(seed=0)
 
     viewer = VisualizationWindow()
 
     for _ in range(100):
 
-        # action = np.random.randint(0, 3, size=(1,))
-        action = np.random.random(6)
+        action = np.random.randint(0, 3, size=(1,))
+        # action = np.random.random(6)
         obs, reward = env.step(action)
         viewer.imshow(env.render())
         pygame.time.delay(60)  # Delay in milliseconds
@@ -78,7 +78,70 @@ def test():
 
     # pygame.quit()
 
+# from mujoco_envs import HalfCheetahContinuing
+# import time
+# import gymnasium as gym
 
 
-if __name__ == '__main__':
-    test()
+# def test_rendering():
+#     env = HalfCheetahContinuing(render_mode='rgb_array')
+#     obs = env.start(0)
+
+#     pygame.init()
+#     screen = pygame.display.set_mode((480, 480), flags=pygame.SHOWN)
+#     pygame.display.set_caption("Visualization")
+
+#     for i in range(100):
+#         action = np.random.random(6)
+#         obs, reward = env.step(action)
+#         print(i)
+
+#         rgb_array = copy.copy(env.render())
+#         random_array = np.random.randint(0, 255, (480, 480, 3))
+
+#         screen.fill((0, 0, 0))  # Fill the screen with black
+#         screen.blit(convert_array_to_surface(random_array), (0, 0))
+#         pygame.display.update()
+#         pygame.time.delay(100)
+#         # time.sleep(0.1)
+
+
+# def test_rendering_original_human():
+#     env = gym.make('HalfCheetah-v5', render_mode='human')
+#     env.reset(seed=0)
+
+#     for i in range(100):
+#         action = np.random.random(6)
+#         obs, reward, _, _, _ = env.step(action)
+
+#         env.render()
+#         time.sleep(0.1)
+
+
+# def test_rendering_original_rgb():
+#     env = gym.make('HalfCheetah-v5', render_mode='human')
+#     env.reset(seed=0)
+
+#     pygame.init()
+#     screen = pygame.display.set_mode((480, 480), pygame.DOUBLEBUF)
+
+#     for i in range(5):
+#         action = np.random.random(6)
+#         obs, reward, _, _, _ = env.step(action)
+
+#         rgb_array = env.render()
+#         print(rgb_array, i)
+
+#         # screen.fill((0, 0, 0))  # Fill the screen with black
+#         # screen.blit(convert_array_to_surface(rgb_array), (0, 0))
+#         # pygame.display.update()
+#         # pygame.time.delay(100)
+
+#         time.sleep(0.6)
+        
+
+# if __name__ == '__main__':
+#     # test()
+#     # test_rendering()
+#     # test_rendering_original_human()
+#     test_rendering_original_rgb()
