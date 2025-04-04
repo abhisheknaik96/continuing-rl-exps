@@ -8,7 +8,7 @@ import glob
 from tqdm import tqdm
 import numpy as np
 import torch
-import gym
+import gymnasium as gym
 from utils import rendering
 import csuite
 from utils import helpers
@@ -29,12 +29,18 @@ env_map = {'RandomWalkN': 'RandomWalkN',
            'RW': 'RandomWalkN',
            'bandit': 'MultiArmedBandit',
            'RiverSwim': 'RiverSwim',
-           'AO': 'gym_AO',
+           'AO': 'AO-v0',
            'MCC': 'Continuous_MountainCarEnv',
         #    'MCC': 'MountainCarContinuous-v0',
             'pendulum_continuous': 'pendulum_continuous',
             'puckworld_continuous': 'puckworld_continuous',
-            'puckworld_continuous_1d': 'puckworld_continuous_1d' 
+            'puckworld_continuous_1d': 'puckworld_continuous_1d',
+            'mujoco_swimmer': 'swimmer',
+            'mujoco_half_cheetah': 'half_cheetah',
+            'mujoco_ant': 'ant',
+            'mujoco_humanoid': 'humanoid',
+            'mujoco_reacher': 'reacher',
+            'mujoco_pusher': 'pusher',
            }
 agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'ATDl': 'AverageCostTDlambdaAgent',
@@ -47,7 +53,8 @@ agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'CDQN': 'CDQNAgent',
              'CDSarsaN': 'CDSNAgent',
              'CD_DDPG': 'DDPGAgent',
-             'CD_PPO': 'PPOAgent'}
+             'CD_PPO': 'PPOAgent',
+             'CD_MDPO': 'MDPOAgent',}
 
 
 def process_observation(env_name, raw_obs):
@@ -192,6 +199,7 @@ def run_experiment_one_config(config):
         if store_max_action_values:
             log['max_value_per_step'] = np.zeros((num_runs, max_steps // 10 + 1), dtype=np.float32)
 
+    helpers.register_continuing_mujoco_environments()
     assert env_name in env_map, f'{env_name} not found.'
     assert agent_name in agent_map, f'{agent_name} not found.'
 
@@ -203,6 +211,8 @@ def run_experiment_one_config(config):
             if env_name == 'catch':
                 # non-linear FA with 50-d binary observations and linear FA with 3-d continuous observations
                 settings['observation_type'] = 'discrete' if nonlinear else 'continuous'
+            if render:
+                settings['render_mode'] = 'human'
             env = csuite.load(env_map[env_name], settings)
             obs = env.start(seed=config['rng_seed'])
         elif env_type == 'gym':
@@ -219,10 +229,10 @@ def run_experiment_one_config(config):
 
         for t in range(max_steps + 1):
             if render:
-                if env_type == 'csuite':
+                if env_type == 'csuite' and 'mujoco' not in env_name:
                     viewer.imshow(env.render())
                 else:
-                    env.render()
+                    env.render()        # mujoco envs will use the default gymnasium renderer
                 time.sleep(0.06)
             # logging relevant data at regular intervals
             if t % eval_every_n_steps == 0:
@@ -234,13 +244,11 @@ def run_experiment_one_config(config):
                          bias=bias)
             # the environment and agent step
             if env_type == 'csuite':
-                action = np.append(action, 0)
-                next_obs, reward = env.step(action)
+                next_obs, reward = env.step(action[0])      # ToDo: will have to fix this for discrete-action problems
             elif env_type == 'gym':
-                next_obs, reward, terminated, _, _ = env.step(action)
+                next_obs, reward, terminated, _, _ = env.step(action[0])
                 if terminated:
                     next_obs = env.reset()[0]
-                next_obs = next_obs
             else:
                 reward, next_obs = env.step(action)
             reward += reward_offset
