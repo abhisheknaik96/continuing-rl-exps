@@ -1,11 +1,10 @@
 """Implements the deep versions of the control agents."""
 
-import time
+import warnings
 import math
 import random
 import copy
 from collections import deque
-import itertools
 import numpy as np
 import torch
 from torch.distributions import MultivariateNormal
@@ -47,6 +46,7 @@ class DeepBaseAgent:
         """
         assert 'device' in agent_args, "device needs to be specified in agent_args"
         self.device = agent_args['device']
+        self.eval_mode = agent_args.get('eval_mode', False)
 
         # initializing the RNG seed for reproducibility
         self.seed = agent_args.get('rng_seed', 42)
@@ -79,6 +79,17 @@ class DeepBaseAgent:
         # for a Q-learning-style update vs a Sarsa-style update
         self.sarsa_update = agent_args.get('sarsa_update', False)
 
+        # for normalizing observations
+        assert 'num_features' in agent_args, "num_features needs to be specified in agent_args"
+        self.num_features = agent_args['num_features']
+        self.obs_mean = np.zeros(self.num_features)
+        self.obs_m2 = np.ones(self.num_features) * 0.01
+        self.obs_std = np.zeros(self.num_features)
+        if self.eval_mode:
+            self.load_obs_mean_std_from = agent_args['load_obs_mean_std_from']
+            self.load_run_idx = agent_args['load_run_idx']
+            self.obs_mean, self.obs_std = load_obs_mean_and_std(self.load_obs_mean_std_from, self.load_run_idx)
+
         # for logistics and checkpointing
         self.timestep = 0
         self.save_model_loc = agent_args['output_folder'] + 'models/'
@@ -86,7 +97,18 @@ class DeepBaseAgent:
         self.last_obs = None
         self.last_action = None
         self.max_value_per_step = None
-        self.eval_mode = agent_args.get('eval_mode', False)
+
+    def _initialize_optimizer(self, network, optimizer_name, step_size):
+        assert optimizer_name in ['SGD', 'Adam', 'RMSprop'], "optimizer needs to be SGD, Adam, or RMSprop"
+        if optimizer_name == 'SGD':
+            optimizer = torch.optim.SGD(params=network.parameters(), lr=step_size)
+        elif optimizer_name == 'Adam':
+            optimizer = torch.optim.Adam(params=network.parameters(), lr=step_size)
+        elif optimizer_name == 'RMSprop':
+            optimizer = torch.optim.RMSprop(params=network.parameters(), lr=step_size, alpha=0.95, eps=0.01)
+        else:
+            raise ValueError("optimizer needs to be SGD, Adam, or RMSprop")
+        return optimizer
 
     def _initialize_avgrew_step_size(self):
         """Initializes the step size for the average-reward parameter."""
@@ -175,7 +197,8 @@ class DeepBaseAgent:
         # update exploration parameters
         self._update_exploration_parameters()
 
-        action = self._choose_action(observation)
+        with torch.no_grad():
+            action = self._choose_action(observation)
         self.last_obs = observation
         self.last_action = action
         return action
@@ -217,26 +240,15 @@ class DeepCenteredDiscountedValueBasedAgent(DeepBaseAgent):
         self.loss_fn = torch.nn.MSELoss()
         # self.loss_fn = torch.nn.SmoothL1Loss()
         self.optimizer_name = agent_args.get('optimizer', 'None')
-        self._initialize_optimizer()
         self.step_size = agent_args.get('step_size', 1e-3)
+        self.optimizer = self._initialize_optimizer(self.q_net, self.optimizer_name, self.step_size)
         
         # initializing the parameters for epsilon-greedy action selection
         self.epsilon_start = torch.tensor(agent_args.get('epsilon_start', 0.9)).float().to(self.device)
         self.epsilon_end = torch.tensor(agent_args.get('epsilon_end', 0.1)).float().to(self.device)
         self.epsilon_decay_param = torch.tensor(agent_args.get('epsilon_decay_param', 200000)).float().to(self.device)
         self.epsilon = self.epsilon_start
-
-    def _initialize_optimizer(self):
-        assert self.optimizer_name in ['SGD', 'Adam', 'RMSprop'], "optimizer needs to be SGD, Adam, or RMSprop"
-        if self.optimizer_name == 'SGD':
-            self.optimizer = torch.optim.SGD(params=self.q_net.parameters(), lr=self.step_size)
-        elif self.optimizer_name == 'Adam':
-            self.optimizer = torch.optim.Adam(self.q_net.parameters(), lr=self.step_size)
-        elif self.optimizer_name == 'RMSprop':
-            self.optimizer = torch.optim.RMSprop(params=self.q_net.parameters(),
-                                                 lr=self.step_size, alpha=0.95, eps=0.01)
-        else:
-            raise ValueError("optimizer needs to be SGD, Adam, or RMSprop")
+        
 
     def _choose_action(self, states):
         """Takes a batch of states and returns the e-greedy action for each."""
@@ -364,15 +376,7 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
             self.actor_target = copy.deepcopy(self.actor).to(self.device)
             self.critic_target = copy.deepcopy(self.critic).to(self.device)
             self.tau = agent_args.get('tau', 0.995) # parameter for target networks' soft updates
-
-        # initializing the parameters for normalizing observations
-        self.obs_mean = np.zeros(self.actor_arch[0])
-        self.obs_m2 = np.ones(self.actor_arch[0]) * 0.01
-        self.obs_std = np.zeros(self.actor_arch[0])
-        if self.eval_mode:
-            self.load_obs_mean_std_from = agent_args['load_obs_mean_std_from']
-            self.load_run_idx = agent_args['load_run_idx']
-            self.obs_mean, self.obs_std = load_obs_mean_and_std(self.load_obs_mean_std_from, self.load_run_idx)
+        self.net_target_pairs = [(self.actor, self.actor_target), (self.critic, self.critic_target)]
 
         # initialize the loss functions and optimizers
         self.actor_optimizer_name = agent_args.get('actor_optimizer', 'None')
@@ -392,22 +396,11 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         self.exploration_sigma = self.exploration_sigma_init
         assert "num_max_steps" in agent_args, "num_max_steps needs to be specified in agent_args"
         self.num_max_steps = agent_args['num_max_steps']
-
-    def _initialize_optimizer(self, network, optimizer_name, step_size):
-        if optimizer_name == 'SGD':
-            optimizer = torch.optim.SGD(params=network.parameters(), lr=step_size)
-        elif optimizer_name == 'Adam':
-            optimizer = torch.optim.Adam(params=network.parameters(), lr=step_size)
-        elif optimizer_name == 'RMSprop':
-            optimizer = torch.optim.RMSprop(params=network.parameters(), lr=step_size, alpha=0.95, eps=0.01)
-        else:
-            raise ValueError("optimizer needs to be SGD, Adam, or RMSprop")
-        return optimizer
     
     def _update_target_net(self):
         "Update the target networks with 'soft' updates."
         if self.target_nets and (self.timestep % self.net_sync_freq == 0):
-            for main_net, target_net in [(self.actor, self.actor_target), (self.critic, self.critic_target)]:
+            for main_net, target_net in self.net_target_pairs:
                 for main, target in zip(main_net.parameters(), target_net.parameters()):
                     target.data.mul_(self.tau)          # these are in-place operations
                     target.data.add_((1-self.tau) * main.data)
@@ -526,6 +519,142 @@ class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
         # enable the gradient computation for the critic parameters for the next call to _update_params()
         for p in self.critic.parameters():
             p.requires_grad = True
+
+
+class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
+    """Implements the SAC algorithm."""
+
+    def __init__(self, **agent_args):
+    
+        super(DeepCenteredDiscountedPolicyBasedAgent, self).__init__(**agent_args)
+
+        # initialize the actor network (and its target network)
+        assert 'actor_arch' in agent_args, "actor_arch needs to be specified in agent_args"
+        self.actor_arch = agent_args['actor_arch']
+        assert self.actor_arch[-1] % 2 == 0, "the actor's last layer should be of size 2*num_actions"
+        self.num_actions = self.actor_arch[-1] // 2
+        self.ortho_init = agent_args.get('orthogonal_initialization', False)
+        self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), 
+                                  final_activation_layer=torch.nn.Identity(), ortho_init=self.ortho_init).to(self.device)
+        self.load_model_from = agent_args.get('load_model_from', None)
+        if self.load_model_from is not None:
+            self.actor.load_state_dict(torch.load(self.load_model_from, weights_only=True))
+            print(f'Successfully loaded model from {self.load_model_from}')
+
+        # initialize the critic networks (and their target networks)
+        assert 'critic_arch' in agent_args, "critic_arch needs to be specified in agent_args"
+        self.critic_arch = agent_args['critic_arch']
+        assert self.critic_arch[0] == self.actor_arch[0] + self.num_actions, \
+            "the input to the action-value critic network should be the concatenation of the state features and actions"
+        self.critic_0 = build_fc_net(self.critic_arch, activation=torch.nn.ReLU(), ortho_init=self.ortho_init).to(self.device)
+        self.critic_1 = build_fc_net(self.critic_arch, activation=torch.nn.ReLU(), ortho_init=self.ortho_init).to(self.device)
+
+        # initialize the target networks, if any
+        self.target_nets = agent_args.get('target_nets', True)
+        if self.target_nets:
+            self.critic_0_target = copy.deepcopy(self.critic_0).to(self.device)
+            self.critic_1_target = copy.deepcopy(self.critic_1).to(self.device)
+            self.tau = agent_args.get('tau', 0.995) # parameter for target networks' soft updates
+        self.net_target_pairs = [(self.critic_0, self.critic_0_target), (self.critic_1, self.critic_1_target)]
+
+        # initialize the loss functions and optimizers
+        self.actor_optimizer_name = agent_args.get('actor_optimizer', 'None')
+        self.actor_step_size = agent_args.get('actor_step_size', 1e-3)
+        self.actor_optimizer = self._initialize_optimizer(self.actor, self.actor_optimizer_name, self.actor_step_size)
+        self.critic_optimizer_name = agent_args.get('critic_optimizer', 'None')
+        self.critic_step_size = agent_args.get('critic_step_size', 1e-3)
+        self.critic_loss_fn = torch.nn.MSELoss()
+        # self.critic_optimizer = self._initialize_optimizer(self.critic_0, self.critic_optimizer_name, self.critic_step_size)
+        self.critic_optimizer = torch.optim.Adam(params=list(self.critic_0.parameters()) + list(self.critic_1.parameters()), 
+                                                 lr=self.critic_step_size)      # ToDo: add support for other optimizers
+        warnings.warn("The current SAC implementation only supports the Adam optimizer for the critic networks.")
+
+        # initialize the exploration parameters
+        self.initial_exploration_only_steps = agent_args.get('initial_exploration_only_steps', 5000)
+        self.entropy_coeff = agent_args.get('entropy_coeff', 0.2)   # from spinningup's SAC implementation
+        
+        assert "num_max_steps" in agent_args, "num_max_steps needs to be specified in agent_args"
+        self.num_max_steps = agent_args['num_max_steps']
+
+    def _update_exploration_parameters(self):
+        return
+
+    def _get_mean_stddev_from_actor(self, states):
+        means_and_log_stddevs = self.actor(states)          # check if slicing is an issue
+        means = means_and_log_stddevs[:,:self.num_actions]
+        log_stdevs = means_and_log_stddevs[:,self.num_actions:]
+        stddevs = torch.exp(log_stdevs)
+        return means, stddevs
+
+    def _evaluate_policy(self, states, exploration=True):
+        """Takes a batch of states and returns the action for each."""
+        if self.timestep < self.initial_exploration_only_steps:
+            return torch.rand((1, self.num_actions)) * 2 - 1, None      # random action in [-1, 1]
+
+        means, stddevs = self._get_mean_stddev_from_actor(states)
+        action_distributions = MultivariateNormal(means, torch.diag_embed(stddevs))
+        
+        actions = means
+        if exploration:
+            actions = action_distributions.rsample()    # sampling with the reparameterization trick
+
+        # compute the log probability of the actions (with some additional computation to account for the squashing)
+        action_log_probabilities = action_distributions.log_prob(actions)
+        action_log_probabilities -= (2*(np.log(2) - actions - torch.nn.functional.softplus(-2 * actions))).sum(axis=1)
+        actions = torch.tanh(actions)                   # squashing the actions to be in [-1, 1]
+
+        return actions, action_log_probabilities
+
+    def _choose_action(self, observation):
+        with torch.no_grad():
+            action, _ = self._evaluate_policy(observation, exploration=True)
+        return action
+
+    def _update_params(self):
+        if self.timestep < self.initial_exploration_only_steps:
+            return
+
+        # sample a batch of transitions
+        states, actions, rewards, next_states = self._sample_from_buffer()
+        
+        ### first, update the critic network
+        q_current_0 = self.critic_0(torch.cat([states, actions], dim=1))
+        q_current_1 = self.critic_1(torch.cat([states, actions], dim=1))
+        with torch.no_grad():
+            next_actions, next_action_log_probabilities = self._evaluate_policy(next_states, exploration=False)
+            q_next_0 = self.critic_0_target(torch.cat([next_states, next_actions], dim=1))
+            q_next_1 = self.critic_1_target(torch.cat([next_states, next_actions], dim=1))
+            q_next = torch.min(q_next_0, q_next_1)
+            target_return = rewards + self.gamma * (q_next - self.entropy_coeff * next_action_log_probabilities)
+        
+        critic_0_loss = self.critic_loss_fn(q_current_0, target_return)
+        critic_1_loss = self.critic_loss_fn(q_current_1, target_return)
+        critic_loss = critic_0_loss + critic_1_loss
+
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+
+        ### now, update the actor network
+        actions, action_log_probabilities = self._evaluate_policy(states)      # sample new actions for the current states
+        q_current_0 = self.critic_0(torch.cat([states, actions], dim=1))
+        q_current_1 = self.critic_1(torch.cat([states, actions], dim=1))
+        q_current = torch.min(q_current_0, q_current_1)
+        actor_obj = q_current - self.entropy_coeff * action_log_probabilities
+        actor_loss = -actor_obj.mean()
+
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        self.actor_optimizer.step()
+
+    def save_trained_model(self, filename_suffix='SAC'):
+        """Saves the trained model to a file."""
+        actor_filename = self.save_model_loc + filename_suffix + '_actor.pth'
+        critic_0_filename = self.save_model_loc + filename_suffix + '_critic0.pth'
+        critic_1_filename = self.save_model_loc + filename_suffix + '_critic1.pth'
+        torch.save(self.actor.state_dict(), actor_filename)
+        torch.save(self.critic_0.state_dict(), critic_0_filename)
+        torch.save(self.critic_1.state_dict(), critic_1_filename)
 
 
 class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):

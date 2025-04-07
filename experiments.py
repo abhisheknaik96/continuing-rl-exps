@@ -54,7 +54,8 @@ agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'CDSarsaN': 'CDSNAgent',
              'CD_DDPG': 'DDPGAgent',
              'CD_PPO': 'PPOAgent',
-             'CD_MDPO': 'MDPOAgent',}
+             'CD_MDPO': 'MDPOAgent',
+             'CD_SAC': 'SACAgent',}
 
 
 def process_observation(env_name, raw_obs):
@@ -244,7 +245,7 @@ def run_experiment_one_config(config):
                          bias=bias)
             # the environment and agent step
             if env_type == 'csuite':
-                next_obs, reward = env.step(action[0])      # ToDo: will have to fix this for discrete-action problems
+                next_obs, reward = env.step(action)
             elif env_type == 'gym':
                 next_obs, reward, terminated, _, _ = env.step(action[0])
                 if terminated:
