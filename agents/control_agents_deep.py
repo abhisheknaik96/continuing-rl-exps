@@ -582,8 +582,8 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
     def _get_mean_stddev_from_actor(self, states):
         means_and_log_stddevs = self.actor(states)          # check if slicing is an issue
         means = means_and_log_stddevs[:,:self.num_actions]
-        log_stdevs = means_and_log_stddevs[:,self.num_actions:]
-        stddevs = torch.exp(log_stdevs)
+        log_stddevs = means_and_log_stddevs[:,self.num_actions:]
+        stddevs = torch.exp(log_stddevs)
         return means, stddevs
 
     def _evaluate_policy(self, states, exploration=True):
@@ -594,14 +594,14 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         means, stddevs = self._get_mean_stddev_from_actor(states)
         action_distributions = MultivariateNormal(means, torch.diag_embed(stddevs))
         
-        actions = means
+        actions_pre_squashing = means
         if exploration:
-            actions = action_distributions.rsample()    # sampling with the reparameterization trick
+            actions_pre_squashing = action_distributions.rsample()    # sampling with the reparameterization trick
 
         # compute the log probability of the actions (with some additional computation to account for the squashing)
-        action_log_probabilities = action_distributions.log_prob(actions)
-        action_log_probabilities -= (2*(np.log(2) - actions - torch.nn.functional.softplus(-2 * actions))).sum(axis=1)
-        actions = torch.tanh(actions)                   # squashing the actions to be in [-1, 1]
+        action_log_probabilities = action_distributions.log_prob(actions_pre_squashing)
+        action_log_probabilities -= (2*(np.log(2) - actions_pre_squashing - torch.nn.functional.softplus(-2 * actions_pre_squashing))).sum(axis=1)
+        actions = torch.tanh(actions_pre_squashing)                   # squashing the actions to be in [-1, 1]
 
         return actions, action_log_probabilities
 
