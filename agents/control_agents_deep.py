@@ -540,6 +540,8 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         if self.load_model_from is not None:
             self.actor.load_state_dict(torch.load(self.load_model_from, weights_only=True))
             print(f'Successfully loaded model from {self.load_model_from}')
+        self.logstddev_min = agent_args.get('logstddev_min', -20)
+        self.logstddev_max = agent_args.get('logstddev_max', 2)
 
         # initialize the critic networks (and their target networks)
         assert 'critic_arch' in agent_args, "critic_arch needs to be specified in agent_args"
@@ -571,8 +573,11 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
         # initialize the exploration parameters
         self.initial_exploration_only_steps = agent_args.get('initial_exploration_only_steps', 5000)
-        self.entropy_coeff = agent_args.get('entropy_coeff', 0.2)   # from spinningup's SAC implementation
-        
+        self.initial_entropy_coeff = agent_args.get('entropy_coeff', 0.2)   # from spinningup's SAC implementation
+        self.log_entropy_coeff = torch.tensor(np.log(self.initial_entropy_coeff), requires_grad=True, device=self.device)
+        self.log_entropy_coeff_optimizer = torch.optim.Adam(params=[self.log_entropy_coeff], lr=self.critic_step_size)
+        self.target_entropy = -self.num_actions
+
         assert "num_max_steps" in agent_args, "num_max_steps needs to be specified in agent_args"
         self.num_max_steps = agent_args['num_max_steps']
 
@@ -583,6 +588,7 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         means_and_log_stddevs = self.actor(states)          # check if slicing is an issue
         means = means_and_log_stddevs[:,:self.num_actions]
         log_stddevs = means_and_log_stddevs[:,self.num_actions:]
+        log_stddevs = torch.clamp(log_stddevs, self.logstddev_min, self.logstddev_max)      # ToDo: use a natural bound via a tanh or something?
         stddevs = torch.exp(log_stddevs)
         return means, stddevs
 
@@ -610,6 +616,9 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
             action, _ = self._evaluate_policy(observation, exploration=True)
         return action
 
+    def entropy_coeff(self):
+        return self.log_entropy_coeff.detach().exp()
+
     def _update_params(self):
         if self.timestep < self.initial_exploration_only_steps:
             return
@@ -625,7 +634,7 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
             q_next_0 = self.critic_0_target(torch.cat([next_states, next_actions], dim=1))
             q_next_1 = self.critic_1_target(torch.cat([next_states, next_actions], dim=1))
             q_next = torch.min(q_next_0, q_next_1)
-            target_return = rewards + self.gamma * (q_next - self.entropy_coeff * next_action_log_probabilities)
+            target_return = rewards + self.gamma * (q_next - self.entropy_coeff() * next_action_log_probabilities)
         
         critic_0_loss = self.critic_loss_fn(q_current_0, target_return)
         critic_1_loss = self.critic_loss_fn(q_current_1, target_return)
@@ -640,12 +649,18 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         q_current_0 = self.critic_0(torch.cat([states, actions], dim=1))
         q_current_1 = self.critic_1(torch.cat([states, actions], dim=1))
         q_current = torch.min(q_current_0, q_current_1)
-        actor_obj = q_current - self.entropy_coeff * action_log_probabilities
+        actor_obj = q_current - self.entropy_coeff() * action_log_probabilities
         actor_loss = -actor_obj.mean()
 
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
+
+        ### finally, update the (log) entropy coefficient
+        entropy_loss = -self.log_entropy_coeff.exp() * (self.target_entropy + action_log_probabilities.detach().mean())
+        self.log_entropy_coeff_optimizer.zero_grad()
+        entropy_loss.backward()
+        self.log_entropy_coeff_optimizer.step()
 
     def save_trained_model(self, filename_suffix='SAC'):
         """Saves the trained model to a file."""
