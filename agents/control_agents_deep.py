@@ -521,6 +521,33 @@ class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
             p.requires_grad = True
 
 
+class SquashedGaussianActor(torch.nn.Module):
+    def __init__(self, layer_sizes, activation=torch.nn.ReLU(), 
+                 final_activation_layer=torch.nn.Identity(), ortho_init=False):
+        super().__init__()
+        assert len(layer_sizes) > 1
+        assert layer_sizes[-1] % 2 == 0, "actor's last layer should have 2*num_actions outputs"
+        num_actions = layer_sizes[-1] // 2
+        layers = []
+        for index in range(len(layer_sizes) - 2):
+            linear = torch.nn.Linear(layer_sizes[index], layer_sizes[index + 1])
+            if ortho_init:
+                torch.nn.init.orthogonal_(linear.weight, 1)
+                torch.nn.init.constant_(linear.bias, 0)
+            act = activation
+            layers += (linear, act)
+        self.network = torch.nn.Sequential(*layers)
+
+        self.mean_layer = torch.nn.Linear(layer_sizes[-2], num_actions)
+        self.logstddev_layer = torch.nn.Linear(layer_sizes[-2], num_actions)
+
+    def forward(self, obs, exploration=False):
+        out = self.network(obs)
+        means = self.mean_layer(out)
+        log_stddevs = self.logstddev_layer(out)
+        return means, log_stddevs
+
+
 class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
     """Implements the SAC algorithm."""
 
@@ -534,8 +561,10 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         assert self.actor_arch[-1] % 2 == 0, "the actor's last layer should be of size 2*num_actions"
         self.num_actions = self.actor_arch[-1] // 2
         self.ortho_init = agent_args.get('orthogonal_initialization', False)
-        self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), 
-                                  final_activation_layer=torch.nn.Identity(), ortho_init=self.ortho_init).to(self.device)
+        # self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), 
+        #                           final_activation_layer=torch.nn.Identity(), ortho_init=self.ortho_init).to(self.device)
+        self.actor = SquashedGaussianActor(self.actor_arch, activation=torch.nn.ReLU(), 
+                                           final_activation_layer=torch.nn.Identity(), ortho_init=self.ortho_init).to(self.device)
         self.load_model_from = agent_args.get('load_model_from', None)
         if self.load_model_from is not None:
             self.actor.load_state_dict(torch.load(self.load_model_from, weights_only=True))
@@ -585,9 +614,10 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         return
 
     def _get_mean_stddev_from_actor(self, states):
-        means_and_log_stddevs = self.actor(states)          # check if slicing is an issue
-        means = means_and_log_stddevs[:,:self.num_actions]
-        log_stddevs = means_and_log_stddevs[:,self.num_actions:]
+        # means_and_log_stddevs = self.actor(states)          # check if slicing is an issue
+        # means = means_and_log_stddevs[:,:self.num_actions]
+        # log_stddevs = means_and_log_stddevs[:,self.num_actions:]
+        means, log_stddevs = self.actor(states)
         log_stddevs = torch.clamp(log_stddevs, self.logstddev_min, self.logstddev_max)      # ToDo: use a natural bound via a tanh or something?
         stddevs = torch.exp(log_stddevs)
         return means, stddevs
