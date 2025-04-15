@@ -375,12 +375,12 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         if self.target_nets:
             self.actor_target = copy.deepcopy(self.actor).to(self.device)
             self.critic_target = copy.deepcopy(self.critic).to(self.device)
-            self.tau = agent_args.get('tau', 0.995) # parameter for target networks' soft updates
+            self.tau = agent_args.get('tau', 0.995)     # parameter for target networks' soft updates
         self.net_target_pairs = [(self.actor, self.actor_target), (self.critic, self.critic_target)]
 
         # initialize the loss functions and optimizers
         self.actor_optimizer_name = agent_args.get('actor_optimizer', 'None')
-        self.actor_step_size = agent_args.get('actor_step_size', 1e-3)
+        self.actor_step_size = agent_args.get('actor_step_size', 3e-4)
         self.actor_optimizer = self._initialize_optimizer(self.actor, self.actor_optimizer_name, self.actor_step_size)
         self.critic_loss_fn = torch.nn.MSELoss()
         self.critic_optimizer_name = agent_args.get('critic_optimizer', 'None')
@@ -427,11 +427,11 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
 
     def start(self, first_state):
         action_tensor = super().start(first_state)
-        return action_tensor[0].numpy()    # return the action array instead of the 2D tensor containing the single action array
+        return action_tensor[0].cpu().numpy()    # return the action array instead of the 2D tensor containing the single action array
 
     def step(self, reward, next_state):
         action_tensor = super().step(reward, next_state)
-        return action_tensor[0].numpy()    # return the action array instead of the 2D tensor containing the single action array
+        return action_tensor[0].cpu().numpy()    # return the action array instead of the 2D tensor containing the single action array
 
     def _choose_action(self, states):
         """Takes a batch of states and returns the action for each."""
@@ -521,33 +521,6 @@ class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
             p.requires_grad = True
 
 
-class SquashedGaussianActor(torch.nn.Module):
-    def __init__(self, layer_sizes, activation=torch.nn.ReLU(), 
-                 final_activation_layer=torch.nn.Identity(), ortho_init=False):
-        super().__init__()
-        assert len(layer_sizes) > 1
-        assert layer_sizes[-1] % 2 == 0, "actor's last layer should have 2*num_actions outputs"
-        num_actions = layer_sizes[-1] // 2
-        layers = []
-        for index in range(len(layer_sizes) - 2):
-            linear = torch.nn.Linear(layer_sizes[index], layer_sizes[index + 1])
-            if ortho_init:
-                torch.nn.init.orthogonal_(linear.weight, 1)
-                torch.nn.init.constant_(linear.bias, 0)
-            act = activation
-            layers += (linear, act)
-        self.network = torch.nn.Sequential(*layers)
-
-        self.mean_layer = torch.nn.Linear(layer_sizes[-2], num_actions)
-        self.logstddev_layer = torch.nn.Linear(layer_sizes[-2], num_actions)
-
-    def forward(self, obs, exploration=False):
-        out = self.network(obs)
-        means = self.mean_layer(out)
-        log_stddevs = self.logstddev_layer(out)
-        return means, log_stddevs
-
-
 class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
     """Implements the SAC algorithm."""
 
@@ -555,16 +528,14 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
     
         super(DeepCenteredDiscountedPolicyBasedAgent, self).__init__(**agent_args)
 
-        # initialize the actor network (and its target network)
+        # initialize the actor network
         assert 'actor_arch' in agent_args, "actor_arch needs to be specified in agent_args"
         self.actor_arch = agent_args['actor_arch']
         assert self.actor_arch[-1] % 2 == 0, "the actor's last layer should be of size 2*num_actions"
         self.num_actions = self.actor_arch[-1] // 2
         self.ortho_init = agent_args.get('orthogonal_initialization', False)
-        # self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), 
-        #                           final_activation_layer=torch.nn.Identity(), ortho_init=self.ortho_init).to(self.device)
-        self.actor = SquashedGaussianActor(self.actor_arch, activation=torch.nn.ReLU(), 
-                                           final_activation_layer=torch.nn.Identity(), ortho_init=self.ortho_init).to(self.device)
+        self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), 
+                                  final_activation_layer=torch.nn.Identity(), ortho_init=self.ortho_init).to(self.device)
         self.load_model_from = agent_args.get('load_model_from', None)
         if self.load_model_from is not None:
             self.actor.load_state_dict(torch.load(self.load_model_from, weights_only=True))
@@ -572,7 +543,7 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.logstddev_min = agent_args.get('logstddev_min', -20)
         self.logstddev_max = agent_args.get('logstddev_max', 2)
 
-        # initialize the critic networks (and their target networks)
+        # initialize the critic networks
         assert 'critic_arch' in agent_args, "critic_arch needs to be specified in agent_args"
         self.critic_arch = agent_args['critic_arch']
         assert self.critic_arch[0] == self.actor_arch[0] + self.num_actions, \
@@ -580,8 +551,8 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.critic_0 = build_fc_net(self.critic_arch, activation=torch.nn.ReLU(), ortho_init=self.ortho_init).to(self.device)
         self.critic_1 = build_fc_net(self.critic_arch, activation=torch.nn.ReLU(), ortho_init=self.ortho_init).to(self.device)
 
-        # initialize the target networks, if any
-        self.target_nets = agent_args.get('target_nets', True)
+        # initialize the target networks
+        self.target_nets = True
         if self.target_nets:
             self.critic_0_target = copy.deepcopy(self.critic_0).to(self.device)
             self.critic_1_target = copy.deepcopy(self.critic_1).to(self.device)
@@ -590,7 +561,7 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
         # initialize the loss functions and optimizers
         self.actor_optimizer_name = agent_args.get('actor_optimizer', 'None')
-        self.actor_step_size = agent_args.get('actor_step_size', 1e-3)
+        self.actor_step_size = agent_args.get('actor_step_size', 3e-4)
         self.actor_optimizer = self._initialize_optimizer(self.actor, self.actor_optimizer_name, self.actor_step_size)
         self.critic_optimizer_name = agent_args.get('critic_optimizer', 'None')
         self.critic_step_size = agent_args.get('critic_step_size', 1e-3)
@@ -602,7 +573,7 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
         # initialize the exploration parameters
         self.initial_exploration_only_steps = agent_args.get('initial_exploration_only_steps', 5000)
-        self.initial_entropy_coeff = agent_args.get('entropy_coeff', 0.2)   # from spinningup's SAC implementation
+        self.initial_entropy_coeff = agent_args.get('initial_entropy_coeff', 0.2)
         self.log_entropy_coeff = torch.tensor(np.log(self.initial_entropy_coeff), requires_grad=True, device=self.device)
         self.log_entropy_coeff_optimizer = torch.optim.Adam(params=[self.log_entropy_coeff], lr=self.critic_step_size)
         self.target_entropy = -self.num_actions
@@ -614,40 +585,48 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         return
 
     def _get_mean_stddev_from_actor(self, states):
-        # means_and_log_stddevs = self.actor(states)          # check if slicing is an issue
-        # means = means_and_log_stddevs[:,:self.num_actions]
-        # log_stddevs = means_and_log_stddevs[:,self.num_actions:]
-        means, log_stddevs = self.actor(states)
+        means_and_log_stddevs = self.actor(states)          # check if slicing is an issue
+        means = means_and_log_stddevs[:,:self.num_actions]
+        log_stddevs = means_and_log_stddevs[:,self.num_actions:]
         log_stddevs = torch.clamp(log_stddevs, self.logstddev_min, self.logstddev_max)      # ToDo: use a natural bound via a tanh or something?
-        stddevs = torch.exp(log_stddevs)
+        stddevs = log_stddevs.exp()
         return means, stddevs
 
-    def _evaluate_policy(self, states, exploration=True):
+    def _evaluate_policy(self, states, exploration=True, compute_log_probs=True):
         """Takes a batch of states and returns the action for each."""
-        if self.timestep < self.initial_exploration_only_steps:
-            return torch.rand((1, self.num_actions)) * 2 - 1, None      # random action in [-1, 1]
 
         means, stddevs = self._get_mean_stddev_from_actor(states)
         action_distributions = MultivariateNormal(means, torch.diag_embed(stddevs))
         
-        actions_pre_squashing = means
-        if exploration:
-            actions_pre_squashing = action_distributions.rsample()    # sampling with the reparameterization trick
+        # sampling with the reparameterization trick
+        actions_pre_squashing = action_distributions.rsample() if exploration else means
 
-        # compute the log probability of the actions (with some additional computation to account for the squashing)
-        action_log_probabilities = action_distributions.log_prob(actions_pre_squashing)
-        action_log_probabilities -= (2*(np.log(2) - actions_pre_squashing - torch.nn.functional.softplus(-2 * actions_pre_squashing))).sum(axis=1)
+        if compute_log_probs:
+            # compute the log probability of the actions (with some additional computation to account for the squashing)
+            action_log_probabilities = action_distributions.log_prob(actions_pre_squashing)
+            action_log_probabilities -= (2*(np.log(2) - actions_pre_squashing - torch.nn.functional.softplus(-2 * actions_pre_squashing))).sum(axis=1)
+        else:
+            action_log_probabilities = None
         actions = torch.tanh(actions_pre_squashing)                   # squashing the actions to be in [-1, 1]
 
         return actions, action_log_probabilities
 
     def _choose_action(self, observation):
-        with torch.no_grad():
-            action, _ = self._evaluate_policy(observation, exploration=True)
+        if self.timestep < self.initial_exploration_only_steps:
+            action = torch.rand((1, self.num_actions)) * 2 - 1      # random actions in [-1, 1]
+        else:
+            with torch.no_grad():
+                action, _ = self._evaluate_policy(observation, compute_log_probs=False)
         return action
 
     def entropy_coeff(self):
         return self.log_entropy_coeff.detach().exp()
+
+    def _toggle_critic_gradient_computation(self, status):
+        for p in self.critic_0.parameters():
+            p.requires_grad = status
+        for p in self.critic_1.parameters():
+            p.requires_grad = status
 
     def _update_params(self):
         if self.timestep < self.initial_exploration_only_steps:
@@ -674,6 +653,9 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         critic_loss.backward()
         self.critic_optimizer.step()
 
+        # the critic params won't be changed during the actor update, so disable any gradient computation for them
+        # self._toggle_critic_gradient_computation(False)
+
         ### now, update the actor network
         actions, action_log_probabilities = self._evaluate_policy(states)      # sample new actions for the current states
         q_current_0 = self.critic_0(torch.cat([states, actions], dim=1))
@@ -691,6 +673,9 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.log_entropy_coeff_optimizer.zero_grad()
         entropy_loss.backward()
         self.log_entropy_coeff_optimizer.step()
+
+        # re-enable gradient computation for the critic networks
+        # self._toggle_critic_gradient_computation(True)
 
     def save_trained_model(self, filename_suffix='SAC'):
         """Saves the trained model to a file."""
