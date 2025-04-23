@@ -1,5 +1,5 @@
 {
-    "exp_name": "puckworld_cont_DiscSAC_0.0003_0.001_batch256_update8_tau0.99_100k_notoggle",
+    "exp_name": "puckworld_cont_DiscSAC_0.0003_0.001_batch256_update8_tau0.99_100k_64x64",
     "env_name": "puckworld_continuous",
     "env_type": "csuite",
     "agent_name": "CD_SAC",
@@ -16,7 +16,7 @@
     "batch_size": 256,
     "buffer_size": 10000,
     "tau": 0.99,
-    "entropy_weight": 0.2,
+    "initial_entropy_coeff": 0.2,
     "actor_arch": [6, 64, 64, 4],
     "critic_arch": [8, 64, 64, 1],
     "num_features": 6,
@@ -36,6 +36,6 @@
         "actor_step_size": [0.0003],
         "critic_step_size": [0.001],
         "eta": [0.0],
-        "gamma": [0.99]
+        "gamma": [0.9]
     }
 }

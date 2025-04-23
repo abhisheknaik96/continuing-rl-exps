@@ -174,7 +174,8 @@ class DeepBaseAgent:
         """Returns the first action corresponding to the first state."""
         self.timestep += 1
         observation = self._process_raw_observation(first_state)
-        action = self._choose_action(observation)
+        with torch.no_grad():
+            action = self._choose_action(observation)
         self.last_obs = observation
         self.last_action = action
         return action
@@ -376,7 +377,7 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
             self.actor_target = copy.deepcopy(self.actor).to(self.device)
             self.critic_target = copy.deepcopy(self.critic).to(self.device)
             self.tau = agent_args.get('tau', 0.995)     # parameter for target networks' soft updates
-        self.net_target_pairs = [(self.actor, self.actor_target), (self.critic, self.critic_target)]
+            self.net_target_pairs = [(self.actor, self.actor_target), (self.critic, self.critic_target)]
 
         # initialize the loss functions and optimizers
         self.actor_optimizer_name = agent_args.get('actor_optimizer', 'None')
@@ -596,7 +597,7 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         """Takes a batch of states and returns the action for each."""
 
         means, stddevs = self._get_mean_stddev_from_actor(states)
-        action_distributions = MultivariateNormal(means, torch.diag_embed(stddevs))
+        action_distributions = MultivariateNormal(means, torch.diag_embed(stddevs)) # ToDo: can avoid creating this in case of non-exploratory actions
         
         # sampling with the reparameterization trick
         actions_pre_squashing = action_distributions.rsample() if exploration else means
@@ -639,7 +640,7 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         q_current_0 = self.critic_0(torch.cat([states, actions], dim=1))
         q_current_1 = self.critic_1(torch.cat([states, actions], dim=1))
         with torch.no_grad():
-            next_actions, next_action_log_probabilities = self._evaluate_policy(next_states, exploration=False)
+            next_actions, next_action_log_probabilities = self._evaluate_policy(next_states)
             q_next_0 = self.critic_0_target(torch.cat([next_states, next_actions], dim=1))
             q_next_1 = self.critic_1_target(torch.cat([next_states, next_actions], dim=1))
             q_next = torch.min(q_next_0, q_next_1)
@@ -714,7 +715,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.timestep += 1
         observation = self._process_raw_observation(first_obs)
         action = self._choose_action(observation) 
-        return action.cpu().numpy()
+        return torch.clip(action[0], -1, 1).cpu().numpy()
 
     def step(self, reward, next_state):
         """Updates the parameters and returns a new action."""
@@ -736,7 +737,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.timestep += 1
         
         action = self._choose_action(observation)
-        return torch.clip(action, -1, 1).cpu().numpy()
+        return torch.clip(action[0], -1, 1).cpu().numpy()
 
     def _add_to_buffer(self, experience):
         """Adds a single experience to the experience buffer."""
