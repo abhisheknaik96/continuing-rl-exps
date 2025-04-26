@@ -522,8 +522,127 @@ class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
             p.requires_grad = True
 
 
+class TD3Agent(DeepCenteredDiscountedPolicyBasedAgent):
+    """Implements the TD3 algorithm (Fujimoto et al., 2018)."""
+
+    def __init__(self, **agent_args):
+    
+        super(DeepCenteredDiscountedPolicyBasedAgent, self).__init__(**agent_args)
+
+        # initialize the actor network
+        assert 'actor_arch' in agent_args, "actor_arch needs to be specified in agent_args"
+        self.actor_arch = agent_args['actor_arch']
+        self.num_actions = self.actor_arch[-1]
+        self.ortho_init = agent_args.get('orthogonal_initialization', False)
+        self.actor = build_fc_net(self.actor_arch, activation=torch.nn.ReLU(), final_activation_layer=torch.nn.Tanh(), 
+                                  ortho_init=self.ortho_init).to(self.device)
+        self.load_model_from = agent_args.get('load_model_from', None)
+        if self.load_model_from is not None:
+            self.actor.load_state_dict(torch.load(self.load_model_from, weights_only=True))
+            print(f'Successfully loaded model from {self.load_model_from}')
+
+        # initialize the critic networks
+        assert 'critic_arch' in agent_args, "critic_arch needs to be specified in agent_args"
+        self.critic_arch = agent_args['critic_arch']
+        assert self.critic_arch[0] == self.actor_arch[0] + self.num_actions, \
+            "the input to the action-value critic network should be the concatenation of the state features and actions"
+        self.critic_0 = build_fc_net(self.critic_arch, activation=torch.nn.ReLU(), ortho_init=self.ortho_init).to(self.device)
+        self.critic_1 = build_fc_net(self.critic_arch, activation=torch.nn.ReLU(), ortho_init=self.ortho_init).to(self.device)
+
+        # initialize the target networks
+        self.target_nets = True
+        if self.target_nets:
+            self.actor_target = copy.deepcopy(self.actor).to(self.device)
+            self.critic_0_target = copy.deepcopy(self.critic_0).to(self.device)
+            self.critic_1_target = copy.deepcopy(self.critic_1).to(self.device)
+            self.tau = agent_args.get('tau', 0.995) # parameter for target networks' soft updates
+        self.net_target_pairs = [(self.actor, self.actor_target), (self.critic_0, self.critic_0_target), (self.critic_1, self.critic_1_target)]
+
+        # initialize the loss functions and optimizers
+        self.actor_optimizer_name = agent_args.get('actor_optimizer', 'None')
+        self.actor_step_size = agent_args.get('actor_step_size', 3e-4)
+        self.actor_optimizer = self._initialize_optimizer(self.actor, self.actor_optimizer_name, self.actor_step_size)
+        self.critic_optimizer_name = agent_args.get('critic_optimizer', 'None')
+        self.critic_step_size = agent_args.get('critic_step_size', 1e-3)
+        self.critic_loss_fn = torch.nn.MSELoss()
+        # self.critic_optimizer = self._initialize_optimizer(self.critic_0, self.critic_optimizer_name, self.critic_step_size)
+        self.critic_optimizer = torch.optim.Adam(params=list(self.critic_0.parameters()) + list(self.critic_1.parameters()), 
+                                                 lr=self.critic_step_size)      # ToDo: add support for other optimizers
+        warnings.warn("The current SAC implementation only supports the Adam optimizer for the critic networks.")
+
+        # initialize the parameter for delaying the actor updates
+        self.actor_delay_wrt_critic = agent_args.get('actor_delay_wrt_critic', 2)
+        self.actor_update_counter = 0
+
+        # initialize exploration and smoothing parameters
+        self.noise_clip_param = agent_args.get('noise_clip_param', 0.5)
+        assert self.noise_clip_param > 0, 'noise_clip_param should be positive'
+        self.smoothing_sigma = agent_args.get('smoothing_sigma', 0.2)
+        self.initial_exploration_only_steps = agent_args.get('initial_exploration_only_steps', 5000)
+        self.exploration_sigma_init = agent_args.get('exploration_sigma_init', 1)
+        self.exploration_sigma_final = agent_args.get('exploration_sigma_final', 0.1)
+        self.exploration_decay_type = agent_args.get('exploration_decay_type', 'linear')
+        self.exploration_decay_param = agent_args.get('exploration_decay_param', 20000)
+        self.exploration_sigma = self.exploration_sigma_init
+        assert "num_max_steps" in agent_args, "num_max_steps needs to be specified in agent_args"
+        self.num_max_steps = agent_args['num_max_steps']
+
+    def _choose_action(self, states, for_target=False):
+        """Takes a batch of states and returns the action for each."""
+        if self.timestep < self.initial_exploration_only_steps:
+            return torch.rand((1, self.num_actions)) * 2 - 1      # random actions in [-1, 1]
+        
+        with torch.no_grad():
+            actions = self.actor(states)    
+    
+        if for_target:
+            noisy_actions = torch.normal(actions, self.smoothing_sigma).clip(-self.noise_clip_param, self.noise_clip_param)
+        else:
+            noisy_actions = torch.normal(actions, self.exploration_sigma)
+        
+        return torch.clip(noisy_actions, -1, 1)
+    
+    def _update_params(self):
+        if self.timestep < self.initial_exploration_only_steps:
+            return
+
+        # sample a batch of transitions
+        states, actions, rewards, next_states = self._sample_from_buffer()
+        
+        ### first, update the critic network
+        q_current_0 = self.critic_0(torch.cat([states, actions], dim=1))
+        q_current_1 = self.critic_1(torch.cat([states, actions], dim=1))
+        with torch.no_grad():
+            next_actions = self._choose_action(next_states, for_target=True)
+            q_next_0 = self.critic_0_target(torch.cat([next_states, next_actions], dim=1))
+            q_next_1 = self.critic_1_target(torch.cat([next_states, next_actions], dim=1))
+            q_next = torch.min(q_next_0, q_next_1)
+            target_return = rewards + self.gamma * q_next
+        
+        critic_0_loss = self.critic_loss_fn(q_current_0, target_return)
+        critic_1_loss = self.critic_loss_fn(q_current_1, target_return)
+        critic_loss = critic_0_loss + critic_1_loss
+
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+
+        ### now, update the actor network
+        self.actor_update_counter = (self.actor_update_counter + 1) % self.actor_delay_wrt_critic 
+        if self.actor_update_counter == 0:
+            actions = self.actor(states)      # sample new actions for the current states
+            q_current_0 = self.critic_0(torch.cat([states, actions], dim=1))
+            q_current_1 = self.critic_1(torch.cat([states, actions], dim=1))
+            q_current = torch.min(q_current_0, q_current_1)
+            actor_loss = -q_current.mean()
+
+            self.actor_optimizer.zero_grad()
+            actor_loss.backward()
+            self.actor_optimizer.step()
+
+
 class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
-    """Implements the SAC algorithm."""
+    """Implements the SAC algorithm (Haarnoja et al., 2018)."""
 
     def __init__(self, **agent_args):
     
