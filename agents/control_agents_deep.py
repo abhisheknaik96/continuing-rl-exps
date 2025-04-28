@@ -414,8 +414,7 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
             self.exploration_sigma = self.exploration_sigma_final
         if self.exploration_decay_type == 'linear':
             self.exploration_sigma -= (self.exploration_sigma_init - 
-                                       self.exploration_sigma_final) * (self.param_update_freq 
-                                                                        / (0.9*self.num_max_steps - self.initial_exploration_only_steps))
+                                       self.exploration_sigma_final) / (0.9*self.num_max_steps - self.initial_exploration_only_steps)
         else:
             raise ValueError("only 'linear' exploration_decay_type supported at the moment")
 
@@ -596,11 +595,11 @@ class TD3Agent(DeepCenteredDiscountedPolicyBasedAgent):
             actions = self.actor(states)    
     
         if for_target:
-            noisy_actions = torch.normal(actions, self.smoothing_sigma).clip(-self.noise_clip_param, self.noise_clip_param)
+            noise = (torch.rand_like(actions) * self.smoothing_sigma).clip(-self.noise_clip_param, self.noise_clip_param)
         else:
-            noisy_actions = torch.normal(actions, self.exploration_sigma)
+            noise = torch.rand_like(actions) * self.exploration_sigma
         
-        return torch.clip(noisy_actions, -1, 1)
+        return torch.clip(actions + noise, -1, 1)
     
     def _update_params(self):
         if self.timestep < self.initial_exploration_only_steps:
@@ -639,6 +638,15 @@ class TD3Agent(DeepCenteredDiscountedPolicyBasedAgent):
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             self.actor_optimizer.step()
+
+    def save_trained_model(self, filename_suffix='TD3'):
+        """Saves the trained model to a file."""
+        actor_filename = self.save_model_loc + filename_suffix + '_actor.pth'
+        critic_0_filename = self.save_model_loc + filename_suffix + '_critic0.pth'
+        critic_1_filename = self.save_model_loc + filename_suffix + '_critic1.pth'
+        torch.save(self.actor.state_dict(), actor_filename)
+        torch.save(self.critic_0.state_dict(), critic_0_filename)
+        torch.save(self.critic_1.state_dict(), critic_1_filename)
 
 
 class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
