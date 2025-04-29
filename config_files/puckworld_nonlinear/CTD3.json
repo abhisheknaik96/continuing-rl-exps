@@ -1,5 +1,5 @@
 {
-    "exp_name": "puckworld_cont_DiscTD3_test",
+    "exp_name": "puckworld_cont_DiscTD3_expsigma0.2",
     "env_name": "puckworld_continuous",
     "env_type": "csuite",
     "agent_name": "CD_TD3",
@@ -9,8 +9,8 @@
     "num_runs": 3,
     "num_max_steps": 100000,
     "eval_every_n_steps": 5000,
-    "param_update_freq": 32,
-    "net_sync_freq": 32,
+    "param_update_freq": 8,
+    "net_sync_freq": 8,
     "batch_size": 128,
     "buffer_size": 10000,
     "actor_arch": [6, 128, 128, 2],
@@ -20,7 +20,7 @@
     "actor_delay_wrt_critic": 2,
     "noise_clip_param": 0.5,
     "smoothing_sigma": 0.2,
-    "exploration_sigma_init": 1,
+    "exploration_sigma_init": 0.1,
     "exploration_sigma_final": 0.1,
     "exploration_decay_type": "linear",
     "initial_exploration_only_steps": 10000,
@@ -36,7 +36,7 @@
     "reward_offset": 0,
     "sweep_parameters":
     {
-        "actor_step_size": [0.001],
+        "actor_step_size": [0.0003],
         "critic_step_size": [0.001],
         "eta": [0.0],
         "gamma": [0.9]

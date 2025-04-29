@@ -165,8 +165,11 @@ class DeepBaseAgent:
             self.obs_m2 += delta * delta_2
             self.obs_std = np.sqrt(self.obs_m2 / self.timestep)
 
-        # compute the normalized observation
-        obs = (obs - self.obs_mean) / self.obs_std if self.timestep > 10 else obs
+            # compute the normalized observation
+            obs = (obs - self.obs_mean) / self.obs_std if self.timestep > 100 else obs
+
+        else:
+            obs = (obs - self.obs_mean) / self.obs_std
 
         return torch.tensor(obs, dtype=torch.float, device=self.device).flatten().unsqueeze(0)
 
@@ -593,15 +596,13 @@ class TD3Agent(DeepCenteredDiscountedPolicyBasedAgent):
         
         with torch.no_grad():
             actions = self.actor(states)    
-    
-        if for_target:
-            noise = (torch.rand_like(actions) * self.smoothing_sigma).clip(-self.noise_clip_param, self.noise_clip_param)
-        else:
-            noise = torch.rand_like(actions) * self.exploration_sigma
+        noisy_actions = torch.normal(actions, self.exploration_sigma).clip(-1.0, 1.0)
         
-        return torch.clip(actions + noise, -1, 1)
+        return noisy_actions
     
     def _update_params(self):
+        """Updates the actor and critic parameters of the agent."""
+        
         if self.timestep < self.initial_exploration_only_steps:
             return
 
@@ -612,7 +613,10 @@ class TD3Agent(DeepCenteredDiscountedPolicyBasedAgent):
         q_current_0 = self.critic_0(torch.cat([states, actions], dim=1))
         q_current_1 = self.critic_1(torch.cat([states, actions], dim=1))
         with torch.no_grad():
-            next_actions = self._choose_action(next_states, for_target=True)
+            next_actions = self.actor_target(next_states)
+            # add (clipped) smoothing noise to the target action
+            noise = (torch.randn_like(next_actions) * self.smoothing_sigma).clip(-self.noise_clip_param, self.noise_clip_param)
+            next_actions += noise.clip(-1.0, 1.0)
             q_next_0 = self.critic_0_target(torch.cat([next_states, next_actions], dim=1))
             q_next_1 = self.critic_1_target(torch.cat([next_states, next_actions], dim=1))
             q_next = torch.min(q_next_0, q_next_1)
@@ -632,7 +636,7 @@ class TD3Agent(DeepCenteredDiscountedPolicyBasedAgent):
             actions = self.actor(states)      # sample new actions for the current states
             q_current_0 = self.critic_0(torch.cat([states, actions], dim=1))
             q_current_1 = self.critic_1(torch.cat([states, actions], dim=1))
-            q_current = torch.min(q_current_0, q_current_1)
+            q_current = torch.min(q_current_0, q_current_1)     # Note: this is different from the original TD3 paper.
             actor_loss = -q_current.mean()
 
             self.actor_optimizer.zero_grad()
