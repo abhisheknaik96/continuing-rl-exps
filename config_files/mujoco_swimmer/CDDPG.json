@@ -1,8 +1,8 @@
 {
-    "exp_name": "pendulum_cont_DiscTD3_test",
-    "env_name": "pendulum_continuous",
+    "exp_name": "swimmer_cont_DiscDDPG_test",
+    "env_name": "mujoco_swimmer",
     "env_type": "csuite",
-    "agent_name": "CD_TD3",
+    "agent_name": "CD_DDPG",
     "nonlinear": true,
     "exp_type": "control",
     "render": false,
@@ -13,16 +13,14 @@
     "net_sync_freq": 8,
     "batch_size": 128,
     "buffer_size": 10000,
-    "actor_arch": [3, 128, 128, 1],
-    "critic_arch": [4, 128, 128, 1],
-    "num_features": 3,
-    "num_actions": 1,
-    "actor_delay_wrt_critic": 2,
-    "noise_clip_param": 0.5,
-    "smoothing_sigma": 0.2,
+    "actor_arch": [8, 128, 128, 2],
+    "critic_arch": [10, 128, 128, 1],
+    "num_features": 8,
+    "num_actions": 2,
+    "use_ou_noise": false,
+    "exploration_decay_type": "linear",
     "exploration_sigma_init": 1,
     "exploration_sigma_final": 0.1,
-    "exploration_decay_type": "linear",
     "initial_exploration_only_steps": 10000,
     "num_weights": 0,
     "actor_optimizer": "Adam",
@@ -39,6 +37,6 @@
         "actor_step_size": [0.0003],
         "critic_step_size": [0.001],
         "eta": [0.0],
-        "gamma": [0.8]
+        "gamma": [0.99]
     }
 }
