@@ -230,6 +230,9 @@ def run_experiment_one_config(config):
         if render:
             viewer = rendering.VisualizationWindow()
 
+        # min_values = [np.inf] * 3
+        # max_values = [-np.inf] * 3
+
         for t in range(max_steps + 1):
             if render:
                 if env_type == 'csuite' and 'mujoco' not in env_name:
@@ -248,6 +251,10 @@ def run_experiment_one_config(config):
             # the environment and agent step
             if env_type == 'csuite':
                 next_obs, reward = env.step(action)
+                # for i in range(3):
+                #     min_values[i] = min(next_obs[i], min_values[i])
+                #     max_values[i] = max(next_obs[i], max_values[i])
+                # print(action, next_obs, '\n')
             elif env_type == 'gym':
                 next_obs, reward, terminated, _, _ = env.step(action[0])
                 if terminated:
@@ -258,6 +265,8 @@ def run_experiment_one_config(config):
             action = agent.step(reward, process_observation(env_name, next_obs))
             # logging the reward at each step
             log['reward'][run][t] = reward
+
+        # print(min_values, max_values)
 
         if render:
             viewer.close()

@@ -89,6 +89,8 @@ class DeepBaseAgent:
             self.load_obs_mean_std_from = agent_args['load_obs_mean_std_from']
             self.load_run_idx = agent_args['load_run_idx']
             self.obs_mean, self.obs_std = load_obs_mean_and_std(self.load_obs_mean_std_from, self.load_run_idx)
+            print(f'Loaded observation mean and stddev for run {self.load_run_idx} from {self.load_obs_mean_std_from}.')
+            # print(f'{self.obs_mean}\n{self.obs_std}\n')
 
         # for logistics and checkpointing
         self.timestep = 0
