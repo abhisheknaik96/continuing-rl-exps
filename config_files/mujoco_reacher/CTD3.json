@@ -1,5 +1,5 @@
 {
-    "exp_name": "reacher100_cont_DiscTD3_gamma0.9_fixedsigma",
+    "exp_name": "reacher100_cont_DiscTD3_centering_eta4",
     "env_name": "mujoco_reacher",
     "env_type": "csuite",
     "agent_name": "CD_TD3",
@@ -38,7 +38,7 @@
     {
         "actor_step_size": [0.0003],
         "critic_step_size": [0.001],
-        "eta": [0.0],
+        "eta": [4.0],
         "gamma": [0.9]
     }
 }

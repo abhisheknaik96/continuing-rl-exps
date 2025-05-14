@@ -622,8 +622,17 @@ class TD3Agent(DeepCenteredDiscountedPolicyBasedAgent):
             q_next_0 = self.critic_0_target(torch.cat([next_states, next_actions], dim=1))
             q_next_1 = self.critic_1_target(torch.cat([next_states, next_actions], dim=1))
             q_next = torch.min(q_next_0, q_next_1)
-            target_return = rewards + self.gamma * q_next
-        
+            target_return = rewards - self.avg_reward + self.gamma * q_next
+                    
+            # update the average-reward parameter
+            old_avg_reward = self.avg_reward
+            delta = target_return - torch.min(q_current_0, q_current_1)
+            self.avg_reward += self.beta * torch.mean(delta)
+
+            # in case the new avg-rew parameter should be used right away
+            if self.robust_to_initialization:
+                target_return += (old_avg_reward - self.avg_reward)
+
         critic_0_loss = self.critic_loss_fn(q_current_0, target_return)
         critic_1_loss = self.critic_loss_fn(q_current_1, target_return)
         critic_loss = critic_0_loss + critic_1_loss
@@ -919,6 +928,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
     def _compute_returns_advantages(self, rewards, states, next_states, trajectory_length):
         returns = torch.zeros((trajectory_length))
         advantages = torch.zeros((trajectory_length))
+        discounted_sum_of_gamma = torch.zeros((trajectory_length))      # ToDo: this can be pre-computed and cached
 
         with torch.no_grad():
             v_current = self.critic(states)
@@ -927,12 +937,22 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         # initialize
         returns[-1] = rewards[-1] + self.gamma * v_next[-1]
         advantages[-1] = returns[-1] - v_current[-1]
+        discounted_sum_of_gamma[-1] = 1
         # compute for every other index (from the last to first)
         for i in range(0, trajectory_length-1)[::-1]:
             returns[i] = rewards[i] + self.gamma * returns[i+1] 
             td_error = rewards[i] + self.gamma * v_current[i+1] - v_current[i]
-            advantages[i] = td_error + self.gamma * advantages[i+1]   # ToDo: a lambda goes here to implement GAE
-        
+            self.avg_reward += self.beta * td_error[0]                  # because td_error is a list with a single element
+            advantages[i] = td_error + self.gamma * advantages[i+1]     # ToDo: a lambda goes here to implement GAE
+            discounted_sum_of_gamma[i] = 1 + self.gamma * discounted_sum_of_gamma[i+1]
+
+        # update the average-reward estimate
+        self.avg_reward += self.beta * (advantages - discounted_sum_of_gamma * self.avg_reward).mean()
+
+        # subtract the average reward from the returns and advantages
+        returns -= (discounted_sum_of_gamma * self.avg_reward)
+        advantages -= (discounted_sum_of_gamma * self.avg_reward)
+
         return returns.unsqueeze(1), advantages.unsqueeze(1)
 
     def _update_params(self):
