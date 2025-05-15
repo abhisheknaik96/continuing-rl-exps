@@ -1,12 +1,12 @@
 {
-    "exp_name": "puckworld1D_cont_CDiscPPO_batch64_0.001_0.001_epoch5_ortho_update1024",
+    "exp_name": "puckworld1D_cont_DiscPPO_test_eta4",
     "env_name": "puckworld_continuous_1d",
     "env_type": "csuite",
     "agent_name": "CD_PPO",
     "nonlinear": true,
     "exp_type": "control",
     "render": false,
-    "num_runs": 10,
+    "num_runs": 5,
     "num_max_steps": 100000,
     "initial_exploration_only_steps": 1000,
     "eval_every_n_steps": 5000,
@@ -17,9 +17,11 @@
     "normalize_advantage": false,
     "target_nets": false,
     "entropy_weight": 0.0,
+    "gae_lambda": 1.0,
     "actor_arch": [3, 64, 64, 1],
     "critic_arch": [3, 64, 64, 1],
     "orthogonal_initialization": true,
+    "num_features": 3,
     "num_actions": 1,
     "num_weights": 0,
     "actor_optimizer": "Adam",
@@ -34,7 +36,7 @@
     {
         "actor_step_size": [0.001],
         "critic_step_size": [0.001],
-        "eta": [0.0],
+        "eta": [4.0],
         "gamma": [0.9]
     }
 }

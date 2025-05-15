@@ -844,19 +844,22 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.normalize_advantage = agent_args.get('normalize_advantage', False)
         self.obj_clip_epsilon = agent_args.get('obj_clip_epsilon', 0.2)
         self.entropy_weight = agent_args.get('entropy_weight', 0.00)
+        self.gae_lambda = agent_args.get('gae_lambda', 0.95)
 
     def _choose_action(self, observation):
-        action, action_log_prob, _ = self._evaluate_policy(observation)
-        self.last_obs = observation
-        self.last_action = action
-        self.last_action_log_prob = action_log_prob
-        return action
+        with torch.no_grad():
+            action, action_log_prob, _ = self._evaluate_policy(observation)
+        return action, action_log_prob
 
     def start(self, first_obs):
         """Returns the first action corresponding to the first state."""
         self.timestep += 1
         observation = self._process_raw_observation(first_obs)
-        action = self._choose_action(observation) 
+        action, action_log_prob = self._choose_action(observation) 
+        
+        self.last_obs = observation
+        self.last_action = action
+        self.last_action_log_prob = action_log_prob
         return torch.clip(action[0], -1, 1).cpu().numpy()
 
     def step(self, reward, next_state):
@@ -878,7 +881,11 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             self._update_exploration_parameters()
         self.timestep += 1
         
-        action = self._choose_action(observation)
+        action, action_log_prob = self._choose_action(observation)
+        
+        self.last_obs = observation
+        self.last_action = action
+        self.last_action_log_prob = action_log_prob
         return torch.clip(action[0], -1, 1).cpu().numpy()
 
     def _add_to_buffer(self, experience):
@@ -906,12 +913,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         Takes a batch of states and returns the action and its log_probability for each,
         along with the policy's entropy.
         """
-        if noisy_actions is None:           # when requiring an action for a state
-            with torch.no_grad():
-                actions = self.actor(states)
-                # print(states, actions)
-        else:                               # when evaluating given actions
-            actions = self.actor(states)
+        actions = self.actor(states)
 
         exploration_covariance_matrix = torch.eye(self.num_actions).unsqueeze(0) * self.exploration_sigma        # ToDo: can avoid recreating this each time
         action_distribution = MultivariateNormal(actions, exploration_covariance_matrix.repeat(actions.shape[0], 1, 1))
@@ -921,37 +923,28 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         action_log_probability = action_distribution.log_prob(noisy_actions)
         entropy = action_distribution.entropy()
         
-        # noisy_actions = torch.clip(noisy_actions, -1, 1)
-
         return noisy_actions.to(dtype=torch.float32), action_log_probability.unsqueeze(1), entropy
 
     def _compute_returns_advantages(self, rewards, states, next_states, trajectory_length):
-        returns = torch.zeros((trajectory_length))
-        advantages = torch.zeros((trajectory_length))
-        discounted_sum_of_gamma = torch.zeros((trajectory_length))      # ToDo: this can be pre-computed and cached
-
         with torch.no_grad():
             v_current = self.critic(states)
             v_next = self.critic(next_states)
 
-        # initialize
-        returns[-1] = rewards[-1] + self.gamma * v_next[-1]
-        advantages[-1] = returns[-1] - v_current[-1]
-        discounted_sum_of_gamma[-1] = 1
-        # compute for every other index (from the last to first)
-        for i in range(0, trajectory_length-1)[::-1]:
-            returns[i] = rewards[i] + self.gamma * returns[i+1] 
-            td_error = rewards[i] + self.gamma * v_current[i+1] - v_current[i]
-            self.avg_reward += self.beta * td_error[0]                  # because td_error is a list with a single element
-            advantages[i] = td_error + self.gamma * advantages[i+1]     # ToDo: a lambda goes here to implement GAE
-            discounted_sum_of_gamma[i] = 1 + self.gamma * discounted_sum_of_gamma[i+1]
+        td_errors = rewards - self.avg_reward + self.gamma * v_next - v_current
 
         # update the average-reward estimate
-        self.avg_reward += self.beta * (advantages - discounted_sum_of_gamma * self.avg_reward).mean()
+        old_avg_reward = self.avg_reward
+        self.avg_reward += self.beta * td_errors.mean()
+        if self.robust_to_initialization:                       # update the TD errors with the new average-reward estimate
+            td_errors += (old_avg_reward - self.avg_reward) 
 
-        # subtract the average reward from the returns and advantages
-        returns -= (discounted_sum_of_gamma * self.avg_reward)
-        advantages -= (discounted_sum_of_gamma * self.avg_reward)
+        # compute advantages as a sum of TD errors 
+        advantages = torch.zeros((trajectory_length))
+        advantages[-1] = td_errors[-1]
+        for i in range(0, trajectory_length-1)[::-1]:
+            advantages[i] = td_errors[i] + self.gamma * self.gae_lambda * advantages[i+1]
+        # use the relation: advantage(state) = return(state) - value(state)
+        returns = advantages + v_current
 
         return returns.unsqueeze(1), advantages.unsqueeze(1)
 
@@ -986,14 +979,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
                 advantages = advantages_all[idx]
 
                 ### first, update the critic parameters
-
-                # update the average-reward parameter
                 v_current = self.critic(states)
-                # old_avg_reward = self.avg_reward
-                # self.avg_reward += self.beta * torch.mean(returns - v_current)
-                # returns += (old_avg_reward - self.avg_reward) * trajectory_length       # ToDo: this is incorrect
-
-                # update the critic-network parameters
                 critic_loss = self.critic_loss_fn(v_current, returns)
                 self.critic_optimizer.zero_grad()
                 critic_loss.backward()
@@ -1005,7 +991,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
                 actor_objective_cpi_term1 = ratios * advantages
                 actor_objective_cpi_term2 = torch.clip(ratios, 1 - self.obj_clip_epsilon, 1 + self.obj_clip_epsilon) * advantages
                 actor_objective_cpi = -torch.min(actor_objective_cpi_term1, actor_objective_cpi_term2).mean()
-                actor_loss = actor_objective_cpi - self.entropy_weight * entropy_latest.mean()      # maximize entropy
+                actor_loss = actor_objective_cpi - self.entropy_weight * entropy_latest.mean()      # negative sign to maximize entropy
 
                 self.actor_optimizer.zero_grad()
                 actor_loss.backward()
