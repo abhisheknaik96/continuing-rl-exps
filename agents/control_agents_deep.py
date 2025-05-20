@@ -877,8 +877,8 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             self._update_params()
             # update the step size(s)
             self._update_step_size()
-            # update the exploration parameters
-            self._update_exploration_parameters()
+        # update the exploration parameters
+        self._update_exploration_parameters()
         self.timestep += 1
         
         action, action_log_prob = self._choose_action(observation)
@@ -939,14 +939,14 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             td_errors += (old_avg_reward - self.avg_reward) 
 
         # compute advantages as a sum of TD errors 
-        advantages = torch.zeros((trajectory_length))
+        advantages = torch.zeros_like((v_current), device=self.device)
         advantages[-1] = td_errors[-1]
         for i in range(0, trajectory_length-1)[::-1]:
             advantages[i] = td_errors[i] + self.gamma * self.gae_lambda * advantages[i+1]
         # use the relation: advantage(state) = return(state) - value(state)
         returns = advantages + v_current
 
-        return returns.unsqueeze(1), advantages.unsqueeze(1)
+        return returns, advantages
 
     def _update_params(self):
         """Updates the actor and critic parameters of the agent."""

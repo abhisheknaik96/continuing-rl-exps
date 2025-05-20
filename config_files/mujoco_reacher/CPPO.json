@@ -1,5 +1,5 @@
 {
-    "exp_name": "reacher_cont_DiscPPO_fixedsigma0.2_eta0",
+    "exp_name": "reacher_cont_DiscPPO_64x64_sigma0.2_0.1_eta4",
     "env_name": "mujoco_reacher",
     "env_type": "csuite",
     "agent_name": "CD_PPO",
@@ -14,13 +14,13 @@
     "batch_size": 64,
     "num_epochs_per_update": 5,
     "exploration_sigma_init": 0.2,
-    "exploration_sigma_final": 0.2,
+    "exploration_sigma_final": 0.1,
     "normalize_advantage": false,
     "target_nets": false,
     "entropy_weight": 0.0,
     "gae_lambda": 0.95,
-    "actor_arch": [10, 128, 128, 2],
-    "critic_arch": [10, 128, 128, 1],
+    "actor_arch": [10, 64, 64, 2],
+    "critic_arch": [10, 64, 64, 1],
     "num_features": 10,
     "num_actions": 2,
     "orthogonal_initialization": true,
@@ -35,9 +35,9 @@
     "reward_offset": 0,
     "sweep_parameters":
     {
-        "actor_step_size": [0.001],
+        "actor_step_size": [0.0003],
         "critic_step_size": [0.001],
-        "eta": [0.0],
+        "eta": [4.0],
         "gamma": [0.9]
     }
 }
