@@ -1,5 +1,5 @@
 {
-    "exp_name": "puckworld1D_cont_DiscSAC_logstddev_bounds_entropy_tuning",
+    "exp_name": "puckworld1D_cont_CDiscSAC_64x64",
     "env_name": "puckworld_continuous_1d",
     "env_type": "csuite",
     "agent_name": "CD_SAC",
@@ -7,16 +7,18 @@
     "exp_type": "control",
     "render": false,
     "eval_mode": false,
-    "num_runs": 3,
+    "num_runs": 5,
     "num_max_steps": 100000,
-    "initial_exploration_only_steps": 1000,
+    "initial_exploration_only_steps": 5000,
     "eval_every_n_steps": 5000,
-    "param_update_freq": 32,
-    "batch_size": 32,
+    "param_update_freq": 8,
+    "net_sync_freq": 8,
+    "batch_size": 256,
     "buffer_size": 10000,
-    "entropy_weight": 0.2,
-    "actor_arch": [3, 32, 32, 2],
-    "critic_arch": [4, 32, 32, 1],
+    "tau": 0.99,
+    "initial_entropy_coeff": 0.2,
+    "actor_arch": [3, 64, 64, 2],
+    "critic_arch": [4, 64, 64, 1],
     "num_features": 3,
     "num_actions": 1,
     "orthogonal_initialization": false,
@@ -31,9 +33,9 @@
     "reward_offset": 0,
     "sweep_parameters":
     {
-        "actor_step_size": [0.001],
-        "critic_step_size": [0.001],
-        "eta": [0.0],
+        "actor_step_size": [0.0003],
+        "critic_step_size": [0.1],
+        "eta": [4.0],
         "gamma": [0.9]
     }
 }
