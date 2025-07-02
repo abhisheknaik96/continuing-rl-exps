@@ -131,7 +131,7 @@ dmypy.json
 # PyCharm-specific
 .idea/
 
-# Mac specific
+# Mac-specific
 .DS_Store
 
 # Project-specific
@@ -139,3 +139,5 @@ results/
 models/
 *.txt
 .vscode/
+slurm_logs/
+*.out

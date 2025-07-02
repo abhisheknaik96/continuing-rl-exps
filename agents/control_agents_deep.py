@@ -960,8 +960,8 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
     def _update_params(self):
         """Updates the actor and critic parameters of the agent."""
         
-        if self.timestep < self.initial_exploration_only_steps:
-            return
+        # if self.timestep < self.initial_exploration_only_steps:   # this serves no purpose in PPO
+        #     return
 
         # sample a batch of transitions
         states_all, actions_all, rewards_all, next_states_all, action_log_probs_all = self._sample_from_buffer()
