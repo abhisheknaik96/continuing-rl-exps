@@ -1,5 +1,5 @@
 {
-    "exp_name": "pendulum_cont_DiscSAC_buffer10k_tau0.99_128x128_update4",
+    "exp_name": "pendulum_cont_CDiscSAC",
     "env_name": "pendulum_continuous",
     "env_type": "csuite",
     "agent_name": "CD_SAC",
@@ -7,18 +7,18 @@
     "exp_type": "control",
     "render": false,
     "eval_mode": false,
-    "num_runs": 5,
+    "num_runs": 10,
     "num_max_steps": 100000,
-    "initial_exploration_only_steps": 5000,
+    "initial_exploration_only_steps": 10000,
     "eval_every_n_steps": 5000,
-    "param_update_freq": 4,
-    "net_sync_freq": 4,
-    "batch_size": 256,
+    "param_update_freq": 1,
+    "net_sync_freq": 1,
+    "batch_size": 128,
     "buffer_size": 10000,
-    "tau": 0.99,
+    "tau": 0.995,
     "initial_entropy_coeff": 0.2,
-    "actor_arch": [3, 128, 128, 2],
-    "critic_arch": [4, 128, 128, 1],
+    "actor_arch": [3, 64, 64, 2],
+    "critic_arch": [4, 64, 64, 1],
     "num_features": 3,
     "num_actions": 1,
     "orthogonal_initialization": false,
@@ -26,7 +26,7 @@
     "actor_optimizer": "Adam",
     "critic_optimizer": "Adam",
     "save_weights": 0,
-    "store_max_action_values": false,
+    "store_max_action_values": true,
     "robust_to_initialization": true,
     "save_model_loc": "models/",
     "device": "cpu",
@@ -35,7 +35,7 @@
     {
         "actor_step_size": [0.0003],
         "critic_step_size": [0.001],
-        "eta": [0.0],
-        "gamma": [0.9]
+        "eta": [0.0, 0.4, 1.0, 4.0],
+        "gamma": [0.9, 0.99, 0.999, 1.0]
     }
 }
