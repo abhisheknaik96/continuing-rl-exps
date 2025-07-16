@@ -1,20 +1,20 @@
 {
-    "exp_name": "reacher100_cont_DiscTD3_centering_eta4",
+    "exp_name": "reacher_cont_CDiscTD3",
     "env_name": "mujoco_reacher",
     "env_type": "csuite",
     "agent_name": "CD_TD3",
     "nonlinear": true,
     "exp_type": "control",
     "render": false,
-    "num_runs": 1,
-    "num_max_steps": 200000,
+    "num_runs": 10,
+    "num_max_steps": 100000,
     "eval_every_n_steps": 5000,
-    "param_update_freq": 8,
-    "net_sync_freq": 8,
+    "param_update_freq": 1,
+    "net_sync_freq": 1,
     "batch_size": 128,
     "buffer_size": 10000,
-    "actor_arch": [10, 128, 128, 2],
-    "critic_arch": [12, 128, 128, 1],
+    "actor_arch": [10, 64, 64, 2],
+    "critic_arch": [12, 64, 64, 1],
     "num_features": 10,
     "num_actions": 2,
     "actor_delay_wrt_critic": 2,
@@ -30,7 +30,7 @@
     "save_weights": 0,
     "store_max_action_values": true,
     "robust_to_initialization": true,
-    "tau": 0.99,
+    "tau": 0.995,
     "save_model_loc": "models/",
     "device": "cpu",
     "reward_offset": 0,
@@ -38,7 +38,7 @@
     {
         "actor_step_size": [0.0003],
         "critic_step_size": [0.001],
-        "eta": [4.0],
-        "gamma": [0.9]
+        "eta": [0.0, 0.4, 1.0, 4.0],
+        "gamma": [0.9, 0.99, 0.999, 1.0]
     }
 }

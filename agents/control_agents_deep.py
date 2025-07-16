@@ -462,11 +462,11 @@ class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
     def _choose_action(self, states):
         """Takes a batch of states and returns the action for each."""
         if self.timestep < self.initial_exploration_only_steps:
-            # noisy_actions = torch.rand((self.num_actions, 1)) * 2 - 1      # random action in [-1, 1]
             if self.use_ou_noise:
                 noisy_actions = torch.from_numpy(self.ou_noise.sample())
             else:
-                noisy_actions = torch.randint(-1, 2, (1, self.num_actions), dtype=torch.float32)     # random action in {-1, 0, 1}
+                # noisy_actions = torch.randint(-1, 2, (1, self.num_actions), dtype=torch.float32)     # random action in {-1, 0, 1}
+                noisy_actions = torch.rand((1, self.num_actions)) * 2 - 1      # random actions in [-1, 1]
         else:
             with torch.no_grad():
                 actions = self.actor(states)

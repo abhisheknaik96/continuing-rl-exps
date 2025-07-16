@@ -14,8 +14,8 @@
     "net_sync_freq": 10000,
     "batch_size": 128,
     "buffer_size": 10000,
-    "actor_arch": [10, 128, 128, 2],
-    "critic_arch": [12, 128, 128, 1],
+    "actor_arch": [10, 64, 64, 2],
+    "critic_arch": [12, 64, 64, 1],
     "num_features": 10,
     "num_actions": 2,
     "actor_delay_wrt_critic": 2,
@@ -25,9 +25,9 @@
     "exploration_sigma_final": 0.001,
     "exploration_decay_type": "linear",
     "initial_exploration_only_steps": 0,
-    "load_model_from": "results/test_exp/models/reacher100_cont_DiscTD3_gamma0.9_fixedsigma_0_0_actor.pth",
+    "load_model_from": "results/centering_sweep_4/reacher/models/reacher_cont_CDiscTD3_0_0_actor.pth",
     "load_run_idx": 0,
-    "load_obs_mean_std_from": "results/test_exp/reacher100_cont_DiscTD3_gamma0.9_fixedsigma_0.npy",
+    "load_obs_mean_std_from": "results/centering_sweep_4/reacher/reacher_cont_CDiscTD3_0.npy",
     "num_weights": 0,
     "actor_optimizer": "Adam",
     "critic_optimizer": "Adam",
@@ -40,8 +40,8 @@
     "reward_offset": 0,
     "sweep_parameters":
     {
-        "actor_step_size": [0.0003],
-        "critic_step_size": [0.001],
+        "actor_step_size": [0.0000],
+        "critic_step_size": [0.000],
         "eta": [0.0],
         "gamma": [0.9]
     }
