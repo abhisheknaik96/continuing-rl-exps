@@ -21,6 +21,7 @@
     "target_nets": false,
     "entropy_weight": 0.0,
     "gae_lambda": 0.95,
+    "max_grad_norm": 0.5,
     "obj_clip_epsilon": 0.2,
     "exploration_sigma_init": 0.1,
     "exploration_sigma_final": 0.1,
@@ -39,7 +40,7 @@
     {
         "actor_step_size": [0.0003],
         "critic_step_size": [0.001],
-        "eta": [0.0, 0.4, 1.0, 4.0],
-        "gamma": [0.9, 0.99, 0.999, 1.0]
+        "eta": [0.0],
+        "gamma": [0.9]
     }
 }

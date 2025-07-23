@@ -854,6 +854,7 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.obj_clip_epsilon = agent_args.get('obj_clip_epsilon', 0.2)
         self.entropy_weight = agent_args.get('entropy_weight', 0.00)
         self.gae_lambda = agent_args.get('gae_lambda', 0.95)
+        self.max_grad_norm = agent_args.get('max_grad_norm', 0.5)
 
     def _choose_action(self, observation):
         with torch.no_grad():
@@ -991,6 +992,8 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
                 v_current = self.critic(states)
                 critic_loss = self.critic_loss_fn(v_current, returns)
                 self.critic_optimizer.zero_grad()
+                if self.max_grad_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
                 critic_loss.backward()
                 self.critic_optimizer.step()
 
@@ -1003,6 +1006,8 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
                 actor_loss = actor_objective_cpi - self.entropy_weight * entropy_latest.mean()      # negative sign to maximize entropy
 
                 self.actor_optimizer.zero_grad()
+                if self.max_grad_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
                 actor_loss.backward()
                 self.actor_optimizer.step()
 
