@@ -172,6 +172,7 @@ def run_experiment_one_config(config):
     # ckpt_frequency = config.get('ckpt_frequency', eval_every_n_steps)
     save_weights = config.get('save_weights', 0)
     num_weights = config['num_weights']
+    store_values = config['store_values']
     # save_counts = config.get('save_visitation_counts', False)
     env_type = config['env_type']
     render = config.get('render', False)
@@ -188,8 +189,10 @@ def run_experiment_one_config(config):
            'avgrew_final': np.zeros(num_runs, dtype=np.float32),
            'misc': [{} for i in range(num_runs)]
            }
+    if store_values:
+        log['values'] = np.zeros((num_runs, max_steps + 1), dtype=np.float32)
+        log['avgrew'] = np.zeros((num_runs, max_steps + 1), dtype=np.float32)
     if save_weights:
-        log['avgrew'] = np.zeros((num_runs, max_steps // eval_every_n_steps + 1), dtype=np.float32)
         if not nonlinear:
             log['weights'] = np.zeros((num_runs, max_steps // eval_every_n_steps + 1,
                                        num_weights), dtype=np.float32)
@@ -258,6 +261,9 @@ def run_experiment_one_config(config):
             action = agent.step(reward, process_observation(env_name, next_obs))
             # logging the reward at each step
             log['reward'][run][t] = reward
+            if store_values:
+                log['values'][run][t] = agent.curr_values
+                log['avgrew'][run][t] = agent.avg_reward
 
         if render:
             viewer.close()

@@ -98,7 +98,8 @@ class DeepBaseAgent:
         validate_output_folder(self.save_model_loc)
         self.last_obs = None
         self.last_action = None
-        self.max_value_per_step = None
+        self.store_values = agent_args.get('store_values', False)
+        self.curr_values = None
 
     def _initialize_optimizer(self, params, optimizer_name, step_size):
         assert optimizer_name in ['SGD', 'Adam', 'RMSprop'], "optimizer needs to be SGD, Adam, or RMSprop"
@@ -408,7 +409,6 @@ class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
         self.critic_optimizer_name = agent_args.get('critic_optimizer', 'None')
         self.critic_step_size = agent_args.get('critic_step_size', 1e-3)
         self.critic_optimizer = self._initialize_optimizer(self.critic.parameters(), self.critic_optimizer_name, self.critic_step_size)
-
     
     def _update_target_net(self):
         "Update the target networks with 'soft' updates."
@@ -469,6 +469,7 @@ class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.use_ou_noise = agent_args.get('use_ou_noise', False)
         if self.use_ou_noise:
             self.ou_noise = OU_Noise(size=(1, self.num_actions), seed=self.seed)
+        self.learn_exploration_sigma = False
 
     def _choose_action(self, states):
         """Takes a batch of states and returns the action for each."""
@@ -502,6 +503,8 @@ class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
         ### first, update the critic network
         q_current = self.critic(torch.cat([states, actions], dim=1))
         with torch.no_grad():
+            if self.store_values:
+                self.curr_values = q_current.mean()
             next_actions = self.actor_target(next_states)
             q_next = self.critic_target(torch.cat([next_states, next_actions], dim=1))
             target_return = rewards - self.avg_reward + self.gamma * q_next
@@ -594,6 +597,7 @@ class TD3Agent(DeepCenteredDiscountedPolicyBasedAgent):
         assert self.noise_clip_param > 0, 'noise_clip_param should be positive'
         self.smoothing_sigma = agent_args.get('smoothing_sigma', 0.2)
         self.initial_exploration_only_steps = agent_args.get('initial_exploration_only_steps', 5000)
+        self.learn_exploration_sigma = False
         self.exploration_sigma_init = agent_args.get('exploration_sigma_init', 1)
         self.exploration_sigma_final = agent_args.get('exploration_sigma_final', 0.1)
         self.exploration_decay_type = agent_args.get('exploration_decay_type', 'linear')
@@ -626,6 +630,8 @@ class TD3Agent(DeepCenteredDiscountedPolicyBasedAgent):
         q_current_0 = self.critic_0(torch.cat([states, actions], dim=1))
         q_current_1 = self.critic_1(torch.cat([states, actions], dim=1))
         with torch.no_grad():
+            if self.store_values:
+                self.curr_values = ((q_current_0 + q_current_1)/2.0).mean()
             next_actions = self.actor_target(next_states)
             # add (clipped) smoothing noise to the target action
             noise = (torch.randn_like(next_actions) * self.smoothing_sigma).clip(-self.noise_clip_param, self.noise_clip_param)
@@ -793,6 +799,8 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         q_current_0 = self.critic_0(torch.cat([states, actions], dim=1))
         q_current_1 = self.critic_1(torch.cat([states, actions], dim=1))
         with torch.no_grad():
+            if self.store_values:
+                self.curr_values = ((q_current_0 + q_current_1)/2.0).mean()
             next_actions, next_action_log_probabilities = self._evaluate_policy(next_states)
             q_next_0 = self.critic_0_target(torch.cat([next_states, next_actions], dim=1))
             q_next_1 = self.critic_1_target(torch.cat([next_states, next_actions], dim=1))
@@ -887,7 +895,6 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         """Updates the parameters and returns a new action."""
 
         observation = self._process_raw_observation(next_state)
-        # print(f"{self.timestep}: ", self.last_obs, self.last_action, reward, observation, self.last_action_log_prob)
         self._add_to_buffer([self.last_obs, self.last_action, reward, observation, self.last_action_log_prob])
 
         # if time to update parameters
@@ -938,7 +945,6 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         if self.learn_exploration_sigma and noisy_actions is not None:   # have to compute this every time the parameters are to be updated
             self.exploration_sigma = torch.exp(self.exploration_log_stddev)
 
-        # action_distribution = MultivariateNormal(actions, torch.eye(self.num_actions) * self.exploration_sigma)
         action_distribution = torch.distributions.Normal(actions, self.exploration_sigma)
 
         if noisy_actions is None:
@@ -946,7 +952,6 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         action_log_probability = action_distribution.log_prob(noisy_actions)
         entropy = action_distribution.entropy()
         
-        # return noisy_actions.to(dtype=torch.float32), action_log_probability.unsqueeze(1), entropy
         return noisy_actions.to(dtype=torch.float32), action_log_probability.sum(dim=1, keepdim=True), entropy.sum(dim=1)
 
     def _compute_returns_advantages(self, rewards, states, next_states, trajectory_length):
@@ -986,6 +991,10 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
         if self.normalize_advantage:
             advantages_all = (advantages_all - advantages_all.mean()) / (advantages_all.std() + 1e-5)
         
+        if self.store_values:
+            with torch.no_grad():
+                self.curr_values = self.critic(states_all).mean()
+
         for _ in range(self.num_epochs_per_update):
 
             # shuffle the indices for minibatch updates within the epochs
@@ -998,29 +1007,6 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
                 returns = returns_all[idx]
                 action_log_probs = action_log_probs_all[idx]
                 advantages = advantages_all[idx]
-
-                # ### first, compute the critic loss
-                # v_current = self.critic(states)
-                # critic_loss = 0.5 * self.critic_loss_fn(v_current, returns)
-
-                # ### now, compute the actor loss
-                # _, action_log_probs_latest, entropy_latest = self._evaluate_policy(states, actions)
-                # ratios = torch.exp(action_log_probs_latest - action_log_probs)
-                # actor_objective_cpi_term1 = ratios * advantages
-                # actor_objective_cpi_term2 = torch.clip(ratios, 1 - self.obj_clip_epsilon, 1 + self.obj_clip_epsilon) * advantages
-                # actor_objective_cpi = -torch.min(actor_objective_cpi_term1, actor_objective_cpi_term2).mean()
-                # actor_loss = actor_objective_cpi - self.entropy_weight * entropy_latest.mean()      # negative sign to maximize entropy
-
-                # # finally, update the actor and critic parameters
-                # total_loss = actor_loss + critic_loss
-                # self.critic_optimizer.zero_grad()
-                # self.actor_optimizer.zero_grad()
-                # total_loss.backward()
-                # # if self.max_grad_norm is not None:
-                # #     torch.nn.utils.clip_grad_norm_(list(self.critic.parameters()) + list(self.actor.parameters()), 
-                # #                                    self.max_grad_norm)
-                # self.critic_optimizer.step()
-                # self.actor_optimizer.step()
 
                 ### first, update the critic parameters
                 v_current = self.critic(states)

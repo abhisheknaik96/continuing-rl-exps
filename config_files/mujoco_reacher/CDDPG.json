@@ -26,7 +26,7 @@
     "actor_optimizer": "Adam",
     "critic_optimizer": "Adam",
     "save_weights": 0,
-    "store_max_action_values": true,
+    "store_values": true,
     "robust_to_initialization": true,
     "tau": 0.995,
     "save_model_loc": "models/",
