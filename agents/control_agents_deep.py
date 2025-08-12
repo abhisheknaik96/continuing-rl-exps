@@ -71,10 +71,12 @@ class DeepBaseAgent:
 
         # initializing the step-size parameter for the average-reward update
         self.step_size = agent_args.get('step_size', 1e-3) if not 'critic_step_size' in agent_args else agent_args['critic_step_size']
-        self.beta_init = self.eta * self.step_size
+        self.beta_init = agent_args.get('avgrew_step_size', 1e-3)
         self.robust_to_initialization = agent_args.get('robust_to_initialization', False)
         self.beta_sequence = 'unbiased_trick' if self.robust_to_initialization else 'constant'
         self._initialize_avgrew_step_size()
+        self.centering_type = agent_args.get('centering_type', None)
+        assert self.centering_type in ['reward-based', 'value-based', None], "centering_type needs to be 'reward-based', 'value-based', or 'None'"
 
         # for a Q-learning-style update vs a Sarsa-style update
         self.sarsa_update = agent_args.get('sarsa_update', False)
@@ -193,6 +195,10 @@ class DeepBaseAgent:
         observation = self._process_raw_observation(next_state)
         self._add_to_buffer([self.last_obs, self.last_action, reward, observation])
 
+        # For methods other than PPO; PPO has its own step()
+        if self.centering_type == 'reward-based' and self.timestep > 10000:
+            self.avg_reward += self.beta * (reward - self.avg_reward)
+            
         # if time to update parameters
         if self.timestep % self.param_update_freq == 0:
             # update target network
@@ -295,13 +301,14 @@ class DeepCenteredDiscountedValueBasedAgent(DeepBaseAgent):
             target_return = rewards - self.avg_reward + self.gamma * q_next
 
             # update the average-reward parameter
-            old_avg_reward = self.avg_reward
-            delta = (target_return - pred_return) if not self.sarsa_update else (rewards - self.avg_reward)
-            self.avg_reward += self.beta * torch.mean(delta)
+            if self.centering_type == 'value-based':
+                old_avg_reward = self.avg_reward
+                delta = target_return - pred_return
+                self.avg_reward += self.beta * torch.mean(delta)
 
-            # in case the new avg-rew parameter should be used right away
-            if self.robust_to_initialization:
-                target_return += (old_avg_reward - self.avg_reward)
+                # in case the new avg-rew parameter should be used right away
+                if self.robust_to_initialization:
+                    target_return += (old_avg_reward - self.avg_reward)
 
         # update the q_net parameters
         loss = self.loss_fn(pred_return, target_return)
@@ -350,6 +357,7 @@ class CDSNAgent(DeepCenteredDiscountedValueBasedAgent):
     def __init__(self, **agent_args):
         super().__init__(**agent_args)
         self.sarsa_update = True
+        self.centering_type = 'reward-based'
 
 
 class DeepCenteredDiscountedPolicyBasedAgent(DeepBaseAgent):
@@ -510,13 +518,15 @@ class DDPGAgent(DeepCenteredDiscountedPolicyBasedAgent):
             target_return = rewards - self.avg_reward + self.gamma * q_next
 
             # update the average-reward parameter
-            old_avg_reward = self.avg_reward
-            delta = target_return - q_current
-            self.avg_reward += self.beta * torch.mean(delta)
+            if self.centering_type == 'value-based':
+                old_avg_reward = self.avg_reward
+                q_current_target = self.critic_target(torch.cat([states, actions], dim=1))
+                delta = target_return - q_current_target
+                self.avg_reward += self.beta * torch.mean(delta)
 
-            # in case the new avg-rew parameter should be used right away
-            if self.robust_to_initialization:
-                target_return += (old_avg_reward - self.avg_reward)
+                # in case the new avg-rew parameter should be used right away
+                if self.robust_to_initialization:
+                    target_return += (old_avg_reward - self.avg_reward)
         
         # update the q_net parameters
         critic_loss = self.critic_loss_fn(q_current, target_return)
@@ -640,15 +650,18 @@ class TD3Agent(DeepCenteredDiscountedPolicyBasedAgent):
             q_next_1 = self.critic_1_target(torch.cat([next_states, next_actions], dim=1))
             q_next = torch.min(q_next_0, q_next_1)
             target_return = rewards - self.avg_reward + self.gamma * q_next
-                    
-            # update the average-reward parameter
-            old_avg_reward = self.avg_reward
-            delta = target_return - torch.min(q_current_0, q_current_1)
-            self.avg_reward += self.beta * delta.mean()
 
-            # in case the new avg-rew parameter should be used right away
-            if self.robust_to_initialization:
-                target_return += (old_avg_reward - self.avg_reward)
+            if self.centering_type == 'value-based':        
+                # update the average-reward parameter
+                old_avg_reward = self.avg_reward
+                q_current_target_0 = self.critic_0_target(torch.cat([states, actions], dim=1))
+                q_current_target_1 = self.critic_1_target(torch.cat([states, actions], dim=1))
+                delta = target_return - torch.min(q_current_target_0, q_current_target_1)
+                self.avg_reward += self.beta * delta.mean()
+
+                # in case the new avg-rew parameter should be used right away
+                if self.robust_to_initialization:
+                    target_return += (old_avg_reward - self.avg_reward)
 
         critic_0_loss = self.critic_loss_fn(q_current_0, target_return)
         critic_1_loss = self.critic_loss_fn(q_current_1, target_return)
@@ -807,14 +820,17 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
             q_next = torch.min(q_next_0, q_next_1)
             target_return = rewards - self.avg_reward + self.gamma * (q_next - self.entropy_coeff() * next_action_log_probabilities)
         
-            # update the average-reward parameter
-            old_avg_reward = self.avg_reward
-            delta = target_return - torch.min(q_current_0, q_current_1)
-            self.avg_reward += self.beta * delta.mean()
+            if self.centering_type == 'value-based':
+                # update the average-reward parameter
+                old_avg_reward = self.avg_reward
+                q_current_target_0 = self.critic_0_target(torch.cat([states, actions], dim=1))
+                q_current_target_1 = self.critic_1_target(torch.cat([states, actions], dim=1))
+                delta = target_return - torch.min(q_current_target_0, q_current_target_1)
+                self.avg_reward += self.beta * delta.mean()
 
-            # in case the new avg-rew parameter should be used right away
-            if self.robust_to_initialization:
-                target_return += (old_avg_reward - self.avg_reward)
+                # in case the new avg-rew parameter should be used right away
+                if self.robust_to_initialization:
+                    target_return += (old_avg_reward - self.avg_reward)
 
         critic_0_loss = self.critic_loss_fn(q_current_0, target_return)
         critic_1_loss = self.critic_loss_fn(q_current_1, target_return)
@@ -823,9 +839,6 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
-
-        # the critic params won't be changed during the actor update, so disable any gradient computation for them
-        # self._toggle_critic_gradient_computation(False)
 
         ### now, update the actor network
         actions, action_log_probabilities = self._evaluate_policy(states)      # sample new actions for the current states
@@ -844,9 +857,6 @@ class SACAgent(DeepCenteredDiscountedPolicyBasedAgent):
         self.log_entropy_coeff_optimizer.zero_grad()
         entropy_loss.backward()
         self.log_entropy_coeff_optimizer.step()
-
-        # re-enable gradient computation for the critic networks
-        # self._toggle_critic_gradient_computation(True)
 
     def save_trained_model(self, filename_suffix='SAC'):
         """Saves the trained model to a file."""
@@ -896,6 +906,9 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
 
         observation = self._process_raw_observation(next_state)
         self._add_to_buffer([self.last_obs, self.last_action, reward, observation, self.last_action_log_prob])
+
+        if self.centering_type == 'reward-based':
+            self.avg_reward += self.beta * (reward - self.avg_reward)
 
         # if time to update parameters
         if self.timestep % self.param_update_freq == 0:
@@ -962,10 +975,11 @@ class PPOAgent(DeepCenteredDiscountedPolicyBasedAgent):
             td_errors = rewards - self.avg_reward + self.gamma * v_next - v_current
 
             # update the average-reward estimate
-            old_avg_reward = self.avg_reward
-            self.avg_reward += self.beta * td_errors.mean()
-            if self.robust_to_initialization:                       # update the TD errors with the new average-reward estimate
-                td_errors += (old_avg_reward - self.avg_reward) 
+            if self.centering_type == 'value-based':
+                old_avg_reward = self.avg_reward
+                self.avg_reward += self.beta * td_errors.mean()
+                if self.robust_to_initialization:                       # update the TD errors with the new average-reward estimate
+                    td_errors += (old_avg_reward - self.avg_reward) 
 
             # compute advantages as a sum of TD errors 
             advantages = torch.zeros_like((v_current), device=self.device)
