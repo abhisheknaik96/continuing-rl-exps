@@ -4,12 +4,14 @@ import pygame
 import numpy as np
 import csuite
 import copy
+import matplotlib.backends.backend_agg as agg
 
 
 def convert_array_to_surface(array):
     surface = pygame.Surface(array.shape[1::-1])
     pygame.surfarray.blit_array(surface, array)
     return pygame.transform.rotate(surface, -90)
+
 
 class VisualizationWindow:
 
@@ -18,20 +20,33 @@ class VisualizationWindow:
         self.shape = None
         self.screen = None
 
-    def imshow(self, rgb_array):
+    def imshow(self, env_name, rgb_array):
         
-        rgb_array = copy.copy(rgb_array)
-        if self.shape == None:
-            self.shape = rgb_array.shape[1::-1]
-            print(self.shape)
-            # print(rgb_array)
-            self.screen = pygame.display.set_mode((480, 480), flags=pygame.RESIZABLE)
-            print('here')
-            pygame.display.set_caption("Visualization")
-        
-        self.screen.fill((0, 0, 0))  # Fill the screen with black
-        self.screen.blit(convert_array_to_surface(rgb_array), (0, 0))
-        pygame.display.update()
+        if env_name == 'minimalAO':
+            (wavefront_incoming, mirror, wavefront_reflected), size = rgb_array
+
+            if self.screen == None:
+                self.screen = pygame.display.set_mode((size[0]*3, size[1]), flags=pygame.RESIZABLE)
+                pygame.display.set_caption("Visualization")
+
+            self.screen.blit(pygame.image.frombuffer(wavefront_incoming, size, "RGBA"), (0, 0))
+            self.screen.blit(pygame.image.frombuffer(mirror, size, "RGBA"), (size[0], 0))
+            self.screen.blit(pygame.image.frombuffer(wavefront_reflected, size, "RGBA"), (2*size[0], 0))
+            pygame.display.update()
+    
+        else:    
+            rgb_array = copy.copy(rgb_array)
+            if self.shape == None:
+                self.shape = rgb_array.shape[1::-1]
+                print(self.shape)
+                # print(rgb_array)
+                self.screen = pygame.display.set_mode((480, 480), flags=pygame.RESIZABLE)
+                print('here')
+                pygame.display.set_caption("Visualization")
+            
+            self.screen.fill((0, 0, 0))  # Fill the screen with black
+            self.screen.blit(convert_array_to_surface(rgb_array), (0, 0))
+            pygame.display.update()
 
     def close(self):
         pygame.quit()

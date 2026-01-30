@@ -41,6 +41,7 @@ env_map = {'RandomWalkN': 'RandomWalkN',
             'mujoco_humanoid': 'humanoid',
             'mujoco_reacher': 'reacher',
             'mujoco_pusher': 'pusher',
+            'minimalAO': 'MinimalAOSimulator'
            }
 agent_map = {'DTDl': 'DifferentialTDlambdaAgent',
              'ATDl': 'AverageCostTDlambdaAgent',
@@ -235,8 +236,8 @@ def run_experiment_one_config(config):
 
         for t in range(max_steps + 1):
             if render:
-                if env_type == 'csuite' and 'mujoco' not in env_name:
-                    viewer.imshow(env.render())
+                if env_type == 'local' or (env_type == 'csuite' and 'mujoco' not in env_name):
+                    viewer.imshow(env_name, env.render())
                 else:
                     env.render()        # mujoco envs will use the default gymnasium renderer
                 time.sleep(0.06)
