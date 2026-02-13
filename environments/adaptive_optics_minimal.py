@@ -207,7 +207,6 @@ class MinimalAOSimulator:
         return result[valid_count > 0.5 * np.max(valid_count)]
 
     def render(self):
-         
         raw_data = []
         size = None
 
@@ -216,13 +215,9 @@ class MinimalAOSimulator:
         titles = ['Incident Wavefront', 'Mirror', 'Reflected Wavefront']
 
         for i in range(3):
-
-            # if i==0:
-                # vmax = np.max(surfaces[0])
-                # vmin = np.min(surfaces[0])
             fig, ax = plt.subplots(figsize=[4, 4])
-            image = ax.imshow(apply_circular_mask(surfaces[i]), cmap=cmaps[i], vmin=-1.0, vmax=1.0,
-                      origin='lower', animated=True)
+            image = ax.imshow(apply_circular_mask(surfaces[i]), cmap=cmaps[i], 
+                              vmin=-1.0, vmax=1.0, origin='lower', animated=True)
             plt.colorbar(image)
             ax.set_title(titles[i])
             ax.set_axis_off()
@@ -232,15 +227,4 @@ class MinimalAOSimulator:
             size = canvas.get_width_height()
             plt.close(fig)
 
-        # mirror = ax1.imshow(apply_circular_mask(self.mirror), cmap='plasma', origin='lower', animated=True)
-        # wavefront_reflected = ax2.imshow(apply_circular_mask(self.reflected_wavefront), cmap='viridis', origin='lower', animated=True)
-        # ax0.set_title('Incident wavefront')
-        # ax1.set_title('Mirror')
-        # ax2.set_title('Reflected wavefront')
-        # ax0.set_axis_off(); ax1.set_axis_off(); ax2.set_axis_off()
-
-        
-
-
-        # return (wavefront_incoming, mirror, wavefront_reflected)
         return tuple(raw_data), size
